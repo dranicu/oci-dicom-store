@@ -61,11 +61,6 @@ Read [IAM prerequisites](docs/iam.md) before applying. The local `~/.oci/config`
 is read through the selected profile; key material is never copied into this
 repository.
 
-For a separate existing OCI Streaming with Apache Kafka environment, see the
-[Cruise Control compatibility and installation guide](docs/cruise-control-oci-managed-kafka.md).
-The guide includes the required managed-service compatibility gate before any
-external Cruise Control executor is enabled.
-
 The Terraform root module, provider lock file, input file, saved plan, and local
 state are contained in `terraform/`. Run the supported workflows from the
 repository root through `make` or `scripts/`; they select that directory
