@@ -20,7 +20,8 @@ help: ## Show the available deployment commands.
 		'  make apply                Plan and apply interactively' \
 		'  make apply-auto           Plan and apply without confirmation' \
 		'  make verify               Test Orthanc REST and DICOMweb' \
-		'  make verify-dicom DICOM_FILE=/absolute/test.dcm' \
+		'  make verify-dicom       Generate, upload, verify, and remove a synthetic DICOM' \
+		'  make verify-dicom DICOM_FILE=/absolute/test.dcm  Test a supplied DICOM instead' \
 		'  make get-credentials      Display the Orthanc username and password' \
 		'  make configure-bastion    Configure the bastion with Ansible' \
 		'  make bastion-status       Test the private stack from the bastion' \
@@ -62,8 +63,15 @@ verify: ## Check public Orthanc REST and DICOMweb endpoints.
 	./scripts/verify.sh
 
 verify-dicom: ## Upload one non-production DICOM instance and verify it.
-	@test -n "$(DICOM_FILE)" || { printf '%s\n' 'Set DICOM_FILE=/absolute/path/to/test.dcm.' >&2; exit 1; }
-	./scripts/verify.sh --dicom "$(DICOM_FILE)"
+	@set -euo pipefail; \
+	if [[ -n "$(DICOM_FILE)" ]]; then \
+		./scripts/verify.sh --dicom "$(DICOM_FILE)"; \
+	else \
+		test_dicom="$$(mktemp "$${TMPDIR:-/tmp}/oci-dicom-test.XXXXXX")"; \
+		trap 'rm -f "$${test_dicom}"' EXIT; \
+		./scripts/generate-test-dicom.py "$${test_dicom}"; \
+		./scripts/verify.sh --dicom "$${test_dicom}" --delete-after-upload; \
+	fi
 
 get-credentials: ## Display the sensitive Orthanc login credentials.
 	@printf 'Username: '
