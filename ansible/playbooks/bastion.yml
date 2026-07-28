@@ -1,0 +1,166 @@
+---
+- name: Configure the DICOM operator bastion
+  hosts: bastion
+  become: true
+  gather_facts: false
+
+  pre_tasks:
+    - name: Wait for SSH and Python
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        sleep: 10
+        timeout: 600
+
+    - name: Wait for cloud-init to finish
+      ansible.builtin.raw: cloud-init status --wait
+      changed_when: false
+
+    - name: Gather system facts
+      ansible.builtin.setup:
+
+    - name: Validate required deployment variables
+      ansible.builtin.assert:
+        that:
+          - deployment_name | length > 0
+          - region | length > 0
+          - private_orthanc_endpoint | length > 0
+          - postgres_host | length > 0
+          - orthanc_password | length > 0
+          - postgres_password | length > 0
+        quiet: true
+      no_log: true
+
+  tasks:
+    - name: Install operator packages
+      ansible.builtin.dnf:
+        name:
+          - bind-utils
+          - git
+          - jq
+          - nmap-ncat
+          - postgresql
+          - python3-pip
+          - tar
+          - tmux
+          - unzip
+        state: present
+
+    - name: Create operator directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "{{ item.mode }}"
+      loop:
+        - path: /etc/oci-dicom
+          mode: "0700"
+        - path: /etc/motd.d
+          mode: "0755"
+        - path: /opt/oci-dicom
+          mode: "0755"
+
+    - name: Create the operator Python environment
+      ansible.builtin.command:
+        cmd: python3 -m venv /opt/oci-dicom/venv
+        creates: /opt/oci-dicom/venv/bin/python
+
+    - name: Install OCI and DICOM Python tools
+      ansible.builtin.pip:
+        executable: /opt/oci-dicom/venv/bin/pip
+        name:
+          - oci
+          - oci-cli
+          - pydicom
+          - requests
+        state: present
+
+    - name: Link OCI CLI into the system path
+      ansible.builtin.file:
+        src: /opt/oci-dicom/venv/bin/oci
+        dest: /usr/local/bin/oci
+        state: link
+
+    - name: Store stack connection data
+      ansible.builtin.template:
+        src: ../templates/stack.json.j2
+        dest: /etc/oci-dicom/stack.json
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: Store the FastConnect private-ingest trust certificate
+      ansible.builtin.copy:
+        content: "{{ private_ingest_certificate }}"
+        dest: /etc/oci-dicom/private-ingest-ca.pem
+        owner: root
+        group: root
+        mode: "0644"
+      when: private_ingest_certificate | length > 0
+
+    - name: Remove an obsolete private-ingest trust certificate
+      ansible.builtin.file:
+        path: /etc/oci-dicom/private-ingest-ca.pem
+        state: absent
+      when: private_ingest_certificate | length == 0
+
+    - name: Install stack operator commands
+      ansible.builtin.template:
+        src: "../templates/{{ item.template }}"
+        dest: "/usr/local/sbin/{{ item.command }}"
+        owner: root
+        group: root
+        mode: "0750"
+      loop:
+        - template: dicom-status.sh.j2
+          command: dicom-status
+        - template: dicom-psql.sh.j2
+          command: dicom-psql
+        - template: dicom-env.sh.j2
+          command: dicom-env
+
+    - name: Harden SSH daemon
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/60-oci-dicom-bastion.conf
+        owner: root
+        group: root
+        mode: "0600"
+        content: |
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          PermitRootLogin no
+          PermitEmptyPasswords no
+          X11Forwarding no
+          AllowTcpForwarding local
+          AllowAgentForwarding no
+          AllowUsers opc
+      notify: Reload sshd
+
+    - name: Validate effective SSH daemon configuration
+      ansible.builtin.command: /usr/sbin/sshd -t
+      changed_when: false
+
+    - name: Enable audit service
+      ansible.builtin.service:
+        name: auditd
+        state: started
+        enabled: true
+
+    - name: Install operator command help
+      ansible.builtin.copy:
+        dest: /etc/motd.d/oci-dicom-operator
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          DICOM operator commands:
+            sudo dicom-status    Test private Orthanc, DICOMweb, and PostgreSQL
+            sudo dicom-env       Show non-secret stack endpoints
+            sudo dicom-psql      Open the managed PostgreSQL database
+
+  handlers:
+    - name: Reload sshd
+      ansible.builtin.service:
+        name: sshd
+        state: reloaded

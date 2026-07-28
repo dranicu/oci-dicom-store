@@ -1,0 +1,47 @@
+# Required OCI placement
+tenancy_id     = "ocid1.tenancy.oc1..replace_me"
+compartment_id = "ocid1.compartment.oc1..replace_me"
+region         = "eu-frankfurt-1"
+home_region    = "eu-frankfurt-1"
+oci_profile    = "DEFAULT"
+
+# Restrict this to hospital, VPN, or corporate egress ranges.
+allowed_client_cidrs = [
+  "203.0.113.10/32",
+]
+
+# Public key for the operator bastion. Terraform reads the public half from
+# disk; no key content is stored in this file. Keep the matching private key
+# outside this repository. bastion_allowed_ssh_cidrs falls back to
+# allowed_client_cidrs when omitted.
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+# bastion_allowed_ssh_cidrs = ["203.0.113.10/32"]
+
+# Optional FastConnect partner circuit for private, TLS-protected large-file
+# ingest. Obtain the provider service OCID and activation key from OCI and the
+# selected provider. The physical/provider order and on-premises BGP work are
+# external prerequisites.
+# enable_fastconnect                  = true
+# fastconnect_on_premises_cidrs       = ["10.80.0.0/16"]
+# fastconnect_provider_service_id     = "ocid1.providerservice.oc1.eu-frankfurt-1.replace_me"
+# fastconnect_provider_service_key_name = "provider-activation-key"
+# fastconnect_bandwidth_shape_name    = "1 Gbps"
+# fastconnect_customer_asn            = "64512"
+# fastconnect_is_bfd_enabled          = true
+
+# Recommended production sizing starts with two application and two database
+# instances. Validate service limits and capacity before increasing these.
+orthanc_replicas = 2
+postgres_instances = 2
+
+# Optional: route alarm notifications to an existing OCI Notifications topic.
+# alarm_notification_topic_id = "ocid1.onstopic.oc1.eu-frankfurt-1.replace_me"
+
+# Optional: browsers need explicit CORS origins. Non-browser DICOMweb clients do not.
+# cors_allowed_origins = ["https://viewer.example.org"]
+
+# If the deploying principal cannot create tenancy-level users/groups/policies,
+# set this to false and supply an existing OCI Customer Secret Key pair.
+# create_storage_identity = false
+# storage_access_key       = "replace_me"
+# storage_secret_key       = "replace_me"
