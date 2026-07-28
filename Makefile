@@ -22,7 +22,7 @@ help: ## Show the available deployment commands.
 		'  make verify               Test Orthanc REST and DICOMweb' \
 		'  make verify-dicom       Generate, upload, verify, and remove a synthetic DICOM' \
 		'  make verify-dicom DICOM_FILE=/absolute/test.dcm  Test a supplied DICOM instead' \
-		'  make get-credentials      Display the Orthanc credentials and DICOMweb URL' \
+		'  make get-credentials      Display the Orthanc credentials and Web UI URL' \
 		'  make configure-bastion    Configure the bastion with Ansible' \
 		'  make bastion-status       Test the private stack from the bastion' \
 		'  make outputs              Show the non-secret deployment summary' \
@@ -73,14 +73,14 @@ verify-dicom: ## Upload one non-production DICOM instance and verify it.
 		./scripts/verify.sh --dicom "$${test_dicom}" --delete-after-upload; \
 	fi
 
-get-credentials: ## Display the Orthanc login credentials and DICOMweb endpoint.
+get-credentials: ## Display the Orthanc login credentials and Web UI endpoint.
 	@printf 'Username: '
 	@terraform -chdir=terraform output -raw orthanc_username
 	@printf '\nPassword: '
 	@terraform -chdir=terraform output -raw orthanc_password
-	@printf '\nDICOMweb QIDO-RS: '
-	@terraform -chdir=terraform output -raw dicomweb_endpoint
-	@printf '\n'
+	@printf '\nOrthanc Web UI: '
+	@terraform -chdir=terraform output -raw api_endpoint
+	@printf '/ui/app/\n'
 
 configure-bastion: ## Apply the Ansible operator configuration to the bastion.
 	@test -f "$(PRIVATE_KEY)" || { printf 'Private SSH key not found: %s\n' "$(PRIVATE_KEY)" >&2; exit 1; }
