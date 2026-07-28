@@ -7,8 +7,8 @@ PRIVATE_KEY ?= $(HOME)/.ssh/id_rsa
 
 .PHONY: \
 	help init fmt validate plan show-plan apply apply-auto outputs verify \
-	verify-dicom get-credentials configure-bastion bastion-status destroy \
-	destroy-auto
+	verify-dicom verify-dicom-clean get-credentials configure-bastion \
+	bastion-status destroy destroy-auto
 
 help: ## Show the available deployment commands.
 	@printf '%s\n' \
@@ -20,7 +20,8 @@ help: ## Show the available deployment commands.
 		'  make apply                Plan and apply interactively' \
 		'  make apply-auto           Plan and apply without confirmation' \
 		'  make verify               Test Orthanc REST and DICOMweb' \
-		'  make verify-dicom       Generate, upload, verify, and remove a synthetic DICOM' \
+		'  make verify-dicom       Upload a synthetic DICOM and keep it visible in Orthanc' \
+		'  make verify-dicom-clean Upload, verify, and remove a synthetic DICOM' \
 		'  make verify-dicom DICOM_FILE=/absolute/test.dcm  Test a supplied DICOM instead' \
 		'  make get-credentials      Display the Orthanc credentials and Web UI URL' \
 		'  make configure-bastion    Configure the bastion with Ansible' \
@@ -62,7 +63,7 @@ outputs: ## Show the non-secret deployment summary.
 verify: ## Check public Orthanc REST and DICOMweb endpoints.
 	./scripts/verify.sh
 
-verify-dicom: ## Upload one non-production DICOM instance and verify it.
+verify-dicom: ## Upload and retain one non-production DICOM instance.
 	@set -euo pipefail; \
 	if [[ -n "$(DICOM_FILE)" ]]; then \
 		./scripts/verify.sh --dicom "$(DICOM_FILE)"; \
@@ -70,8 +71,15 @@ verify-dicom: ## Upload one non-production DICOM instance and verify it.
 		test_dicom="$$(mktemp "$${TMPDIR:-/tmp}/oci-dicom-test.XXXXXX")"; \
 		trap 'rm -f "$${test_dicom}"' EXIT; \
 		./scripts/generate-test-dicom.py "$${test_dicom}"; \
-		./scripts/verify.sh --dicom "$${test_dicom}" --delete-after-upload; \
+		./scripts/verify.sh --dicom "$${test_dicom}"; \
 	fi
+
+verify-dicom-clean: ## Upload, verify, and remove one synthetic DICOM instance.
+	@set -euo pipefail; \
+	test_dicom="$$(mktemp "$${TMPDIR:-/tmp}/oci-dicom-test.XXXXXX")"; \
+	trap 'rm -f "$${test_dicom}"' EXIT; \
+	./scripts/generate-test-dicom.py "$${test_dicom}"; \
+	./scripts/verify.sh --dicom "$${test_dicom}" --delete-after-upload
 
 get-credentials: ## Display the Orthanc login credentials and Web UI endpoint.
 	@printf 'Username: '

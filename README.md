@@ -158,11 +158,17 @@ Run the control-plane and API checks:
 scripts/verify.sh
 ```
 
-Generate a synthetic, non-production DICOM instance, upload and verify it, then
-remove it from Orthanc:
+Generate and upload a synthetic, non-production DICOM instance that remains
+visible in the Orthanc Web UI:
 
 ```bash
 make verify-dicom
+```
+
+For an automated upload test that removes its synthetic instance afterward:
+
+```bash
+make verify-dicom-clean
 ```
 
 To upload a DICOM file you supply instead:
@@ -178,9 +184,10 @@ make get-credentials
 ```
 
 The verifier stores credentials in a mode-0600 temporary netrc file, removes it
-on exit, checks Orthanc `/system`, and runs a DICOMweb QIDO-RS query. The
-automatically generated DICOM contains no patient data and is removed remotely
-after verification.
+on exit, checks Orthanc `/system`, and runs a DICOMweb QIDO-RS query. Generated
+DICOM files contain no patient data. Samples uploaded with `make verify-dicom`
+remain in Orthanc until deleted from the Web UI; `make verify-dicom-clean`
+removes its sample automatically.
 
 ## Important 20 MB API Gateway limit
 
