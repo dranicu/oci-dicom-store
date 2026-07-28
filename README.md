@@ -63,6 +63,23 @@ repository.
 
 ## Deploy
 
+The primary workflows are available through the repository Makefile:
+
+```bash
+make help
+make validate
+make plan
+make apply
+make get-credentials
+make verify
+make destroy
+```
+
+`make apply` and the bastion targets default to `~/.ssh/id_rsa`. Override the
+key with `PRIVATE_KEY=/absolute/path/to/private_key`. Pass extra Terraform
+planning arguments with `TF_ARGS`, for example
+`make plan TF_ARGS="-var=orthanc_replicas=2"`.
+
 1. Create the input file:
 
    ```bash
