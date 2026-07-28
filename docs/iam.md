@@ -43,6 +43,11 @@ must be allowed to manage those identity resources and policies at tenancy
 scope. This is usually appropriate only for a tenancy administrator or a
 carefully delegated Resource Manager stack.
 
+Set `storage_identity_email` to a unique, monitored address or alias. OCI IAM
+identity domains commonly require a primary email when creating a user, and
+OCI requires that email to be unique across users in the tenancy.
+`scripts/deploy.sh` verifies uniqueness through OCI CLI before applying.
+
 The generated runtime policy is bucket-scoped:
 
 ```text

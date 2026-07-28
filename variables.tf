@@ -388,6 +388,39 @@ variable "postgres_backup_retention_days" {
   description = "Automatic PostgreSQL backup retention."
   type        = number
   default     = 14
+
+  validation {
+    condition     = var.postgres_backup_retention_days >= 1
+    error_message = "postgres_backup_retention_days must be at least 1."
+  }
+}
+
+variable "postgres_backup_start" {
+  description = "UTC hour and minute for daily PostgreSQL backups, in HH:MM format."
+  type        = string
+  default     = "02:00"
+
+  validation {
+    condition = can(regex(
+      "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+      var.postgres_backup_start,
+    ))
+    error_message = "postgres_backup_start must use the OCI PostgreSQL HH:MM format, for example 02:00."
+  }
+}
+
+variable "postgres_maintenance_window_start" {
+  description = "UTC PostgreSQL maintenance start in lowercase day HH:MM:SS format."
+  type        = string
+  default     = "sun 03:00:00"
+
+  validation {
+    condition = can(regex(
+      "^(mon|tue|wed|thu|fri|sat|sun) ([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$",
+      var.postgres_maintenance_window_start,
+    ))
+    error_message = "postgres_maintenance_window_start must use day HH:MM:SS, for example sun 03:00:00."
+  }
 }
 
 variable "object_storage_bucket_name" {
@@ -406,6 +439,23 @@ variable "create_storage_identity" {
   description = "Create a dedicated OCI IAM user, group, policy, and Customer Secret Key for Orthanc."
   type        = bool
   default     = true
+}
+
+variable "storage_identity_email" {
+  description = "Unique primary email for the generated OCI IAM service user. Required by identity domains when create_storage_identity is true."
+  type        = string
+  default     = null
+
+  validation {
+    condition = (
+      var.storage_identity_email == null ||
+      can(regex(
+        "^[^[:space:]@]+@[^[:space:]@]+\\.[^[:space:]@]+$",
+        var.storage_identity_email,
+      ))
+    )
+    error_message = "storage_identity_email must be a syntactically valid email address."
+  }
 }
 
 variable "storage_access_key" {

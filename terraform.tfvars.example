@@ -42,6 +42,7 @@ postgres_instances = 2
 
 # If the deploying principal cannot create tenancy-level users/groups/policies,
 # set this to false and supply an existing OCI Customer Secret Key pair.
+storage_identity_email = "oci-dicom-service@example.org"
 # create_storage_identity = false
 # storage_access_key       = "replace_me"
 # storage_secret_key       = "replace_me"

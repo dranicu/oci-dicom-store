@@ -53,6 +53,76 @@ terraform init
 terraform validate
 terraform plan -out="${plan_file}" "${terraform_args[@]}"
 
+plan_json="$(terraform show -json "${plan_file}")"
+identity_plan="$(
+  jq -r '
+    [
+      .resource_changes[]?
+      | select(.address == "oci_identity_user.orthanc[0]")
+      | .change.after
+      | [.compartment_id, .email, (.id // "")]
+      | @tsv
+    ][0] // ""
+  ' <<<"${plan_json}"
+)"
+
+if [[ -n "${identity_plan}" ]]; then
+  if ! command -v oci >/dev/null 2>&1; then
+    printf 'OCI CLI is required when create_storage_identity is true.\n' >&2
+    exit 1
+  fi
+
+  IFS=$'\t' read -r identity_tenancy identity_email managed_user_id \
+    <<<"${identity_plan}"
+  oci_auth="$(jq -r '.variables.oci_auth.value' <<<"${plan_json}")"
+  oci_profile="$(jq -r '.variables.oci_profile.value' <<<"${plan_json}")"
+  oci_args=()
+
+  case "${oci_auth}" in
+    APIKey)
+      oci_args+=(--profile "${oci_profile}" --auth api_key)
+      ;;
+    SecurityToken)
+      oci_args+=(--profile "${oci_profile}" --auth security_token)
+      ;;
+    InstancePrincipal)
+      oci_args+=(--auth instance_principal)
+      ;;
+    ResourcePrincipal)
+      oci_args+=(--auth resource_principal)
+      ;;
+    OKEWorkloadIdentity)
+      oci_args+=(--auth oke_workload_identity)
+      ;;
+  esac
+
+  identity_email_collision="$(
+    oci "${oci_args[@]}" iam user list \
+      --compartment-id "${identity_tenancy}" \
+      --all \
+      --output json |
+      jq -r \
+        --arg email "${identity_email}" \
+        --arg managed_user_id "${managed_user_id}" \
+        '
+          [
+            .data[]
+            | select(.email == $email)
+            | .id
+            | select(. != $managed_user_id)
+          ]
+          | length > 0
+        '
+  )"
+
+  if [[ "${identity_email_collision}" == "true" ]]; then
+    printf '%s\n' \
+      'storage_identity_email is already assigned to another OCI IAM user.' \
+      'Set a unique, monitored address or alias before applying.' >&2
+    exit 1
+  fi
+fi
+
 if [[ "${mode}" == "plan" ]]; then
   printf 'Plan saved to %s\n' "${plan_file}"
   exit 0

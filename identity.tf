@@ -1,3 +1,15 @@
+data "oci_identity_users" "storage_email" {
+  count    = var.create_storage_identity ? 1 : 0
+  provider = oci.home
+
+  compartment_id = var.tenancy_id
+
+  filter {
+    name   = "email"
+    values = [coalesce(var.storage_identity_email, "unset@example.invalid")]
+  }
+}
+
 resource "oci_identity_user" "orthanc" {
   count    = var.create_storage_identity ? 1 : 0
   provider = oci.home
@@ -5,7 +17,21 @@ resource "oci_identity_user" "orthanc" {
   compartment_id = var.tenancy_id
   name           = "${local.resource_name}-storage"
   description    = "Service identity for ${local.resource_name} Orthanc Object Storage access"
+  email          = var.storage_identity_email
   freeform_tags  = local.tags
+
+  lifecycle {
+    precondition {
+      condition = (
+        var.storage_identity_email != null &&
+        alltrue([
+          for user in data.oci_identity_users.storage_email[0].users :
+          user.name == "${local.resource_name}-storage"
+        ])
+      )
+      error_message = "storage_identity_email must be set and cannot belong to another OCI IAM user. Use a unique, monitored address or alias."
+    }
+  }
 }
 
 resource "oci_identity_group" "orthanc" {

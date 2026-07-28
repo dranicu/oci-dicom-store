@@ -31,10 +31,10 @@ resource "oci_psql_db_system" "orthanc" {
   management_policy {
     backup_policy {
       kind           = "DAILY"
-      backup_start   = "02:00:00"
+      backup_start   = var.postgres_backup_start
       retention_days = var.postgres_backup_retention_days
     }
-    maintenance_window_start = "sun 03:00:00"
+    maintenance_window_start = var.postgres_maintenance_window_start
   }
 
   freeform_tags = local.tags

@@ -49,8 +49,9 @@ matching the reference architecture's API Gateway flow.
 
 - Terraform 1.6 or newer
 - Ansible Core 2.17 or newer for automatic bastion configuration
-- an OCI CLI/API-key profile, security-token profile, instance principal, or
-  Resource Manager resource principal
+- OCI CLI configured with an API-key or security-token profile when
+  `create_storage_identity = true`, or execution through an instance/resource
+  principal
 - a tenancy OCID, target compartment OCID, workload region, and tenancy home region
 - sufficient OCI service limits for API Gateway, flexible Load Balancer,
   Container Instances, and OCI Database with PostgreSQL
@@ -68,10 +69,13 @@ repository.
    cp terraform.tfvars.example terraform.tfvars
    ```
 
-2. Set the four OCI placement values, `ssh_public_key_path`, and replace
-   `allowed_client_cidrs` with the hospital, VPN, or corporate egress CIDRs.
+2. Set the four OCI placement values, `ssh_public_key_path`, a unique
+   `storage_identity_email`, and replace `allowed_client_cidrs` with the
+   hospital, VPN, or corporate egress CIDRs.
    Set `bastion_allowed_ssh_cidrs` separately if administrators use different
    egress addresses. Never use `0.0.0.0/0` for production SSH.
+   The deployment preflight queries OCI IAM and stops before apply if the
+   storage identity email is already assigned.
 
 3. Validate and review a plan:
 
