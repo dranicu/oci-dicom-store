@@ -15,7 +15,7 @@ help: ## Show the available deployment commands.
 		'OCI DICOM deployment targets:' \
 		'' \
 		'  make validate             Run Terraform, shell, JSON, and Ansible checks' \
-		'  make plan                 Create dicom.tfplan without applying it' \
+		'  make plan                 Create terraform/dicom.tfplan without applying it' \
 		'  make show-plan            Display the saved Terraform plan' \
 		'  make apply                Plan and apply interactively' \
 		'  make apply-auto           Plan and apply without confirmation' \
@@ -32,10 +32,10 @@ help: ## Show the available deployment commands.
 		'  TF_ARGS="-var=name=value" PRIVATE_KEY=/absolute/path/to/id_rsa'
 
 init: ## Initialize Terraform providers and backend.
-	terraform init
+	terraform -chdir=terraform init
 
 fmt: ## Format all Terraform files.
-	terraform fmt -recursive
+	terraform -chdir=terraform fmt -recursive
 
 validate: ## Run all static deployment checks.
 	./scripts/validate.sh
@@ -44,8 +44,8 @@ plan: ## Create a saved, state-aware Terraform plan.
 	./scripts/deploy.sh --plan-only $(TF_ARGS)
 
 show-plan: ## Display the saved Terraform plan.
-	@test -f dicom.tfplan || { printf '%s\n' 'dicom.tfplan is missing; run make plan first.' >&2; exit 1; }
-	terraform show dicom.tfplan
+	@test -f terraform/dicom.tfplan || { printf '%s\n' 'terraform/dicom.tfplan is missing; run make plan first.' >&2; exit 1; }
+	terraform -chdir=terraform show dicom.tfplan
 
 apply: ## Plan, apply interactively, and configure the bastion.
 	@test -f "$(PRIVATE_KEY)" || { printf 'Private SSH key not found: %s\n' "$(PRIVATE_KEY)" >&2; exit 1; }
@@ -56,7 +56,7 @@ apply-auto: ## Plan and apply without confirmation, then configure the bastion.
 	BASTION_SSH_PRIVATE_KEY_FILE="$(PRIVATE_KEY)" ./scripts/deploy.sh --auto-approve $(TF_ARGS)
 
 outputs: ## Show the non-secret deployment summary.
-	terraform output deployment_summary
+	terraform -chdir=terraform output deployment_summary
 
 verify: ## Check public Orthanc REST and DICOMweb endpoints.
 	./scripts/verify.sh
@@ -67,9 +67,9 @@ verify-dicom: ## Upload one non-production DICOM instance and verify it.
 
 get-credentials: ## Display the sensitive Orthanc login credentials.
 	@printf 'Username: '
-	@terraform output -raw orthanc_username
+	@terraform -chdir=terraform output -raw orthanc_username
 	@printf '\nPassword: '
-	@terraform output -raw orthanc_password
+	@terraform -chdir=terraform output -raw orthanc_password
 	@printf '\n'
 
 configure-bastion: ## Apply the Ansible operator configuration to the bastion.

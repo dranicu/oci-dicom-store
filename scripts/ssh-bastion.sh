@@ -2,6 +2,7 @@
 set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+terraform_dir="${project_dir}/terraform"
 private_key="${BASTION_SSH_PRIVATE_KEY_FILE:-}"
 
 if [[ "${1:-}" == "--private-key" ]]; then
@@ -15,6 +16,5 @@ fi
   exit 2
 }
 
-cd "${project_dir}"
-bastion_ip="$(terraform output -raw bastion_public_ip)"
+bastion_ip="$(terraform -chdir="${terraform_dir}" output -raw bastion_public_ip)"
 exec ssh -i "${private_key}" opc@"${bastion_ip}" "$@"

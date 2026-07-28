@@ -2,6 +2,7 @@
 set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+terraform_dir="${project_dir}/terraform"
 auto_approve="false"
 
 if [[ "${1:-}" == "--auto-approve" ]]; then
@@ -11,7 +12,7 @@ elif [[ -n "${1:-}" ]]; then
   exit 1
 fi
 
-cd "${project_dir}"
+cd "${terraform_dir}"
 terraform init
 terraform plan -destroy
 

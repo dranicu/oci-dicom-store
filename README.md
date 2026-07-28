@@ -61,6 +61,11 @@ Read [IAM prerequisites](docs/iam.md) before applying. The local `~/.oci/config`
 is read through the selected profile; key material is never copied into this
 repository.
 
+The Terraform root module, provider lock file, input file, saved plan, and local
+state are contained in `terraform/`. Run the supported workflows from the
+repository root through `make` or `scripts/`; they select that directory
+automatically.
+
 ## Deploy
 
 The primary workflows are available through the repository Makefile:
@@ -83,7 +88,7 @@ planning arguments with `TF_ARGS`, for example
 1. Create the input file:
 
    ```bash
-   cp terraform.tfvars.example terraform.tfvars
+   cp terraform/terraform.tfvars.example terraform/terraform.tfvars
    ```
 
 2. Set the four OCI placement values, `ssh_public_key_path`, a unique
@@ -97,9 +102,9 @@ planning arguments with `TF_ARGS`, for example
 3. Validate and review a plan:
 
    ```bash
-   scripts/validate.sh
-   scripts/deploy.sh --plan-only
-   terraform show dicom.tfplan
+   make validate
+   make plan
+   make show-plan
    ```
 
 4. Apply:
@@ -162,8 +167,7 @@ scripts/verify.sh --dicom /absolute/path/to/test.dcm
 Retrieve credentials only when needed:
 
 ```bash
-terraform output -raw orthanc_username
-terraform output -raw orthanc_password
+make get-credentials
 ```
 
 The verifier stores credentials in a mode-0600 temporary netrc file, removes it
@@ -229,7 +233,7 @@ No private SSH key is included.
 If the deployment principal cannot manage tenancy IAM, set
 `create_storage_identity = false` and supply an existing Customer Secret Key
 pair through sensitive Resource Manager variables or `TF_VAR_*` environment
-variables. Do not commit them to `terraform.tfvars`.
+variables. Do not commit them to `terraform/terraform.tfvars`.
 
 ## Operations
 
@@ -239,8 +243,8 @@ backup/recovery, monitoring, upgrades, and cleanup.
 Useful outputs:
 
 ```bash
-terraform output deployment_summary
-terraform output resource_ocids
+make outputs
+terraform -chdir=terraform output resource_ocids
 ```
 
 To review and destroy the stack:

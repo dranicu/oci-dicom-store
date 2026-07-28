@@ -2,17 +2,17 @@
 set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "${project_dir}"
+terraform_dir="${project_dir}/terraform"
 
-terraform fmt -check -recursive
-terraform init -backend=false
-terraform validate
+terraform -chdir="${terraform_dir}" fmt -check -recursive
+terraform -chdir="${terraform_dir}" init -backend=false
+terraform -chdir="${terraform_dir}" validate
 
-for script_file in scripts/*.sh; do
+for script_file in "${project_dir}"/scripts/*.sh; do
   bash -n "${script_file}"
 done
 
-for json_file in tests/fixtures/*.json; do
+for json_file in "${project_dir}"/tests/fixtures/*.json; do
   jq -e . "${json_file}" >/dev/null
 done
 

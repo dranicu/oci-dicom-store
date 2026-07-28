@@ -11,7 +11,8 @@ USAGE
 }
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-plan_file="${project_dir}/dicom.tfplan"
+terraform_dir="${project_dir}/terraform"
+plan_file="${terraform_dir}/dicom.tfplan"
 mode="interactive"
 terraform_args=()
 
@@ -41,13 +42,13 @@ for command_name in terraform jq curl; do
   fi
 done
 
-if [[ ! -f "${project_dir}/terraform.tfvars" ]] &&
+if [[ ! -f "${terraform_dir}/terraform.tfvars" ]] &&
    [[ -z "${TF_VAR_tenancy_id:-}" || -z "${TF_VAR_compartment_id:-}" ]]; then
-  printf 'Create terraform.tfvars from terraform.tfvars.example or export required TF_VAR_* values.\n' >&2
+  printf 'Create terraform/terraform.tfvars from terraform/terraform.tfvars.example or export required TF_VAR_* values.\n' >&2
   exit 1
 fi
 
-cd "${project_dir}"
+cd "${terraform_dir}"
 terraform fmt -check -recursive
 terraform init
 terraform validate

@@ -81,7 +81,7 @@ For generated credentials, use Terraform replacement so dependent Container
 Instances receive the same atomic configuration:
 
 ```bash
-terraform apply \
+terraform -chdir=terraform apply \
   -replace=random_password.orthanc \
   -replace=random_password.postgres \
   -replace='oci_identity_customer_secret_key.orthanc[0]'
@@ -161,7 +161,7 @@ restrict calling AEs and network sources.
 
 1. Stop new ingest and record the approved retention disposition.
 2. Export and verify required studies and audit evidence.
-3. Run `terraform plan -destroy`.
+3. Run `terraform -chdir=terraform plan -destroy`.
 4. Run `scripts/destroy.sh`.
 5. If the bucket is non-empty, the destroy fails by design.
 6. Only an authorized data custodian should remove current and versioned objects.

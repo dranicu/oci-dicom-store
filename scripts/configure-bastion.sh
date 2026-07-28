@@ -12,6 +12,7 @@ USAGE
 }
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+terraform_dir="${project_dir}/terraform"
 private_key="${BASTION_SSH_PRIVATE_KEY_FILE:-}"
 ssh_user="opc"
 umask 077
@@ -62,8 +63,7 @@ temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/oci-dicom-ansible.XXXXXX")"
 trap 'rm -rf "${temporary_dir}"' EXIT
 chmod 700 "${temporary_dir}"
 
-cd "${project_dir}"
-bastion_ip="$(terraform output -raw bastion_public_ip)"
+bastion_ip="$(terraform -chdir="${terraform_dir}" output -raw bastion_public_ip)"
 known_hosts_file="${temporary_dir}/known_hosts"
 inventory_file="${temporary_dir}/inventory.json"
 variables_file="${temporary_dir}/variables.json"
@@ -93,7 +93,7 @@ jq -n \
     }
   }' >"${inventory_file}"
 
-terraform output -json >"${outputs_file}"
+terraform -chdir="${terraform_dir}" output -json >"${outputs_file}"
 jq \
   '{
     deployment_name: .deployment_summary.value.name,

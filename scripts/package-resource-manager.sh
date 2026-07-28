@@ -2,6 +2,7 @@
 set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+terraform_dir="${project_dir}/terraform"
 invocation_dir="$(pwd)"
 output_file="${1:-${project_dir}/oci-dicom-resource-manager.zip}"
 public_key_file="${2:-${SSH_PUBLIC_KEY_PATH:-${HOME}/.ssh/id_rsa.pub}}"
@@ -58,10 +59,10 @@ terraform_files=(
   outputs.tf
 )
 for terraform_file in "${terraform_files[@]}"; do
-  cp "${project_dir}/${terraform_file}" "${staging_dir}/${terraform_file}"
+  cp "${terraform_dir}/${terraform_file}" "${staging_dir}/${terraform_file}"
 done
 cp \
-  "${project_dir}/bastion/cloud-init.yaml.tftpl" \
+  "${terraform_dir}/bastion/cloud-init.yaml.tftpl" \
   "${staging_dir}/bastion/cloud-init.yaml.tftpl"
 cp "${public_key_file}" "${staging_dir}/bastion.pub"
 printf 'ssh_public_key_path = "bastion.pub"\n' \

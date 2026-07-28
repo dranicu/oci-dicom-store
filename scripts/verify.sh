@@ -11,6 +11,7 @@ USAGE
 }
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+terraform_dir="${project_dir}/terraform"
 dicom_file=""
 
 while (($#)); do
@@ -33,11 +34,10 @@ while (($#)); do
   shift
 done
 
-cd "${project_dir}"
-api_endpoint="$(terraform output -raw api_endpoint)"
-dicomweb_endpoint="$(terraform output -raw dicomweb_endpoint)"
-username="$(terraform output -raw orthanc_username)"
-password="$(terraform output -raw orthanc_password)"
+api_endpoint="$(terraform -chdir="${terraform_dir}" output -raw api_endpoint)"
+dicomweb_endpoint="$(terraform -chdir="${terraform_dir}" output -raw dicomweb_endpoint)"
+username="$(terraform -chdir="${terraform_dir}" output -raw orthanc_username)"
+password="$(terraform -chdir="${terraform_dir}" output -raw orthanc_password)"
 
 netrc_file="$(mktemp "${TMPDIR:-/tmp}/oci-dicom-netrc.XXXXXX")"
 cleanup() {

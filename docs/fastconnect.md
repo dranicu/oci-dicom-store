@@ -87,9 +87,9 @@ the private load-balancer address as an IP subject alternative name.
 Export the public trust certificate when configuring a client manually:
 
 ```bash
-terraform output -raw fastconnect_private_ingest_certificate \
+terraform -chdir=terraform output -raw fastconnect_private_ingest_certificate \
   > private-ingest-ca.pem
-terraform output -raw fastconnect_private_ingest_endpoint
+terraform -chdir=terraform output -raw fastconnect_private_ingest_endpoint
 ```
 
 The private key remains in encrypted Terraform state and in the OCI Load

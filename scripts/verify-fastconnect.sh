@@ -13,6 +13,7 @@ USAGE
 }
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+terraform_dir="${project_dir}/terraform"
 control_plane_only="false"
 dicom_file=""
 umask 077
@@ -47,8 +48,7 @@ for command_name in terraform jq oci curl base64; do
   }
 done
 
-cd "${project_dir}"
-fastconnect_output="$(terraform output -json fastconnect_status)"
+fastconnect_output="$(terraform -chdir="${terraform_dir}" output -json fastconnect_status)"
 virtual_circuit_id="$(jq -r '.virtual_circuit_id // empty' <<<"${fastconnect_output}")"
 [[ -n "${virtual_circuit_id}" ]] || {
   printf 'FastConnect is not enabled in this Terraform state.\n' >&2
@@ -80,12 +80,12 @@ if [[ "${control_plane_only}" == "true" ]]; then
   exit 0
 fi
 
-endpoint="$(terraform output -raw fastconnect_private_ingest_endpoint)"
-username="$(terraform output -raw orthanc_username)"
-password="$(terraform output -raw orthanc_password)"
+endpoint="$(terraform -chdir="${terraform_dir}" output -raw fastconnect_private_ingest_endpoint)"
+username="$(terraform -chdir="${terraform_dir}" output -raw orthanc_username)"
+password="$(terraform -chdir="${terraform_dir}" output -raw orthanc_password)"
 certificate_file="$(mktemp "${TMPDIR:-/tmp}/oci-dicom-fastconnect-ca.XXXXXX")"
 trap 'rm -f "${certificate_file}"' EXIT
-terraform output -raw fastconnect_private_ingest_certificate >"${certificate_file}"
+terraform -chdir="${terraform_dir}" output -raw fastconnect_private_ingest_certificate >"${certificate_file}"
 
 basic_auth="$(
   printf '%s:%s' "${username}" "${password}" |
