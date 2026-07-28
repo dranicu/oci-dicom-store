@@ -22,7 +22,3 @@ data "oci_core_services" "all_services" {
 data "oci_objectstorage_namespace" "this" {
   compartment_id = var.tenancy_id
 }
-
-data "oci_objectstorage_namespace_metadata" "this" {
-  namespace = data.oci_objectstorage_namespace.this.namespace
-}

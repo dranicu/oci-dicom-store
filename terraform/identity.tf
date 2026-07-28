@@ -55,12 +55,12 @@ resource "oci_identity_policy" "orthanc_storage" {
   count    = var.create_storage_identity ? 1 : 0
   provider = oci.home
 
-  compartment_id = var.tenancy_id
+  compartment_id = var.compartment_id
   name           = "${local.resource_name}-storage"
   description    = "Allow only the Orthanc service identity to access its DICOM image bucket"
   statements = [
-    "Allow group ${oci_identity_group.orthanc[0].name} to read buckets in compartment id ${local.storage_compartment_id} where target.bucket.name = '${local.bucket_name}'",
-    "Allow group ${oci_identity_group.orthanc[0].name} to manage objects in compartment id ${local.storage_compartment_id} where target.bucket.name = '${local.bucket_name}'",
+    "Allow group ${oci_identity_group.orthanc[0].name} to read buckets in compartment id ${var.compartment_id} where target.bucket.name = '${local.bucket_name}'",
+    "Allow group ${oci_identity_group.orthanc[0].name} to manage objects in compartment id ${var.compartment_id} where target.bucket.name = '${local.bucket_name}'",
   ]
   freeform_tags = local.tags
 }

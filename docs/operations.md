@@ -161,8 +161,16 @@ restrict calling AEs and network sources.
 
 1. Stop new ingest and record the approved retention disposition.
 2. Export and verify required studies and audit evidence.
-3. Run `terraform -chdir=terraform plan -destroy`.
-4. Run `scripts/destroy.sh`.
-5. If the bucket is non-empty, the destroy fails by design.
-6. Only an authorized data custodian should remove current and versioned objects.
-7. Rerun destroy and retain the final Terraform output/log as cleanup evidence.
+3. Run `make destroy`. If the bucket is non-empty, the destroy fails by design
+   and leaves the DICOM data intact.
+4. If retention requires preserving the data, do not bypass that failure.
+5. If an authorized data custodian has approved permanent deletion, run
+   `make destroy-purge`. The script displays the managed bucket and requires
+   typing `purge <bucket-name>`.
+6. The purge path uses OCI's bucket `--empty` operation to permanently delete
+   current and versioned objects, pre-authenticated requests, replication
+   policies, and uncommitted multipart uploads before Terraform destroys the
+   remaining resources. An active retention rule can still block deletion.
+7. Use `make destroy-purge-auto` only in controlled automation where that
+   irreversible deletion has already been approved.
+8. Retain the final Terraform and OCI CLI output as cleanup evidence.

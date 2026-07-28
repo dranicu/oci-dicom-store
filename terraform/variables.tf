@@ -429,12 +429,6 @@ variable "object_storage_bucket_name" {
   default     = null
 }
 
-variable "storage_compartment_id" {
-  description = "Compartment for the DICOM bucket. Defaults to the Object Storage namespace's configured S3 compartment."
-  type        = string
-  default     = null
-}
-
 variable "create_storage_identity" {
   description = "Create a dedicated OCI IAM user, group, policy, and Customer Secret Key for Orthanc."
   type        = bool

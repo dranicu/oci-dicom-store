@@ -8,7 +8,7 @@ PRIVATE_KEY ?= $(HOME)/.ssh/id_rsa
 .PHONY: \
 	help init fmt validate plan show-plan apply apply-auto outputs verify \
 	verify-dicom verify-dicom-clean get-credentials configure-bastion \
-	bastion-status destroy destroy-auto
+	bastion-status destroy destroy-auto destroy-purge destroy-purge-auto
 
 help: ## Show the available deployment commands.
 	@printf '%s\n' \
@@ -27,8 +27,10 @@ help: ## Show the available deployment commands.
 		'  make configure-bastion    Configure the bastion with Ansible' \
 		'  make bastion-status       Test the private stack from the bastion' \
 		'  make outputs              Show the non-secret deployment summary' \
-		'  make destroy              Plan and destroy with confirmation' \
-		'  make destroy-auto         Destroy without confirmation' \
+		'  make destroy              Destroy; preserve a non-empty DICOM bucket' \
+		'  make destroy-auto         Same data-preserving destroy without confirmation' \
+		'  make destroy-purge        Permanently purge the bucket, then destroy' \
+		'  make destroy-purge-auto   Purge and destroy without confirmation (dangerous)' \
 		'' \
 		'Optional overrides:' \
 		'  TF_ARGS="-var=name=value" PRIVATE_KEY=/absolute/path/to/id_rsa'
@@ -103,3 +105,9 @@ destroy: ## Plan and destroy the stack with confirmation.
 
 destroy-auto: ## Destroy the stack without confirmation.
 	./scripts/destroy.sh --auto-approve
+
+destroy-purge: ## Permanently purge the Object Storage bucket and destroy the stack.
+	./scripts/destroy.sh --purge-bucket
+
+destroy-purge-auto: ## Permanently purge and destroy without confirmation.
+	./scripts/destroy.sh --purge-bucket --auto-approve

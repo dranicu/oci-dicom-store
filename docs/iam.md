@@ -1,8 +1,8 @@
 # IAM prerequisites
 
 The safest operating model is an OCI Resource Manager stack or dedicated
-deployment group with access only to the target compartment and the configured
-Object Storage S3 compartment.
+deployment group with access to the target compartment plus the minimum
+tenancy-level permissions documented below.
 
 ## Compartment resources
 
@@ -15,11 +15,13 @@ The deploying principal needs to manage:
 - flexible Load Balancers
 - API Gateway gateways and deployments
 - OCI Database with PostgreSQL systems
-- Object Storage buckets in the namespace's `default_s3compartment_id`
+- Object Storage buckets in the target compartment
 - log groups, service logs, Monitoring alarms, and work requests
 
 It also needs read access to tenancy availability domains, region
-subscriptions, Object Storage namespace/metadata, and service CIDRs.
+subscriptions, Object Storage namespace, and service CIDRs. The stack creates
+the bucket through OCI's native API directly in `compartment_id`; it does not
+change the tenancy-wide S3-compatible API compartment designation.
 
 For an isolated deployment compartment, a tenancy administrator can start with:
 
@@ -29,19 +31,21 @@ Allow group DicomDeployers to read compartments in tenancy
 Allow group DicomDeployers to inspect tenancies in tenancy
 ```
 
-If the Object Storage namespace's S3 compartment is not `Dicom`, grant the group
-`manage object-family` in that compartment as well. Narrow the broad first
-statement to service families after a successful initial plan in your tenancy.
+For an existing root-level bucket, the first corrective apply also needs
+`BUCKET_UPDATE` and `BUCKET_CREATE` in the source compartment so OCI can move
+it to `Dicom`. Narrow the broad first statement to service families after a
+successful initial plan in your tenancy.
 
 ## Storage identity modes
 
 ### Automated identity
 
 With `create_storage_identity = true`, Terraform creates a classic OCI IAM user,
-group, membership, policy, and Customer Secret Key. The deployment principal
-must be allowed to manage those identity resources and policies at tenancy
-scope. This is usually appropriate only for a tenancy administrator or a
-carefully delegated Resource Manager stack.
+group, membership, and Customer Secret Key at tenancy scope; OCI does not place
+these global identity objects in application compartments. The bucket-scoped
+policy itself is placed in `compartment_id`. The deployment principal must be
+allowed to manage these resources. This is usually appropriate only for a
+tenancy administrator or a carefully delegated Resource Manager stack.
 
 Set `storage_identity_email` to a unique, monitored address or alias. OCI IAM
 identity domains commonly require a primary email when creating a user, and
@@ -55,8 +59,9 @@ Allow group <deployment>-storage to read buckets in compartment id <s3-compartme
 Allow group <deployment>-storage to manage objects in compartment id <s3-compartment-ocid> where target.bucket.name = '<bucket>'
 ```
 
-IAM resources are created through the `home_region` provider alias because IAM
-writes must target the tenancy home region.
+IAM writes use the `home_region` provider alias because they must target the
+tenancy home region. This does not cause the compartment-scoped policy to be
+placed in the tenancy root.
 
 ### Existing identity
 

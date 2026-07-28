@@ -3,11 +3,6 @@ locals {
 
   resource_name = "${var.name}-${local.suffix}"
   bucket_name   = coalesce(var.object_storage_bucket_name, "${var.name}-images-${local.suffix}")
-  storage_compartment_id = coalesce(
-    var.storage_compartment_id,
-    data.oci_objectstorage_namespace_metadata.this.default_s3compartment_id,
-    var.tenancy_id,
-  )
 
   orthanc_password = coalesce(var.orthanc_password, random_password.orthanc.result)
   postgres_password = coalesce(

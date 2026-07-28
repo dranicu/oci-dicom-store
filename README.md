@@ -94,6 +94,10 @@ planning arguments with `TF_ARGS`, for example
 2. Set the four OCI placement values, `ssh_public_key_path`, a unique
    `storage_identity_email`, and replace `allowed_client_cidrs` with the
    hospital, VPN, or corporate egress CIDRs.
+   Every regional workload resource, the Object Storage bucket, and the
+   bucket-scoped runtime policy use `compartment_id`. Orthanc can access the
+   native OCI-created bucket through OCI's S3-compatible path-style endpoint,
+   so the stack does not modify the tenancy-wide default S3 compartment.
    Set `bastion_allowed_ssh_cidrs` separately if administrators use different
    egress addresses. Never use `0.0.0.0/0` for production SSH.
    The deployment preflight queries OCI IAM and stops before apply if the
@@ -263,15 +267,19 @@ make outputs
 terraform -chdir=terraform output resource_ocids
 ```
 
-To review and destroy the stack:
+To review and destroy the stack while preserving the Object Storage safeguard:
 
 ```bash
-scripts/destroy.sh
+make destroy
 ```
 
-OCI refuses to delete a non-empty Object Storage bucket. This prevents a normal
-destroy from silently erasing medical images; remove current and versioned
-objects only under an approved retention/decommission process.
+OCI refuses to delete a non-empty Object Storage bucket, so `make destroy`
+cannot silently erase medical images. After an approved retention and
+decommission process, `make destroy-purge` requires the exact bucket name and
+then permanently removes the bucket, all current and versioned objects,
+pre-authenticated requests, replication policies, and uncommitted multipart
+uploads before destroying the rest of the stack. The non-interactive
+`make destroy-purge-auto` target is intended only for controlled automation.
 
 ## Reference implementation notes
 
