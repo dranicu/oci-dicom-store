@@ -410,16 +410,16 @@ variable "postgres_backup_start" {
 }
 
 variable "postgres_maintenance_window_start" {
-  description = "UTC PostgreSQL maintenance start in lowercase day HH:MM:SS format."
+  description = "UTC PostgreSQL maintenance start in uppercase DAY HH:MM format."
   type        = string
-  default     = "sun 03:00:00"
+  default     = "SUN 03:00"
 
   validation {
     condition = can(regex(
-      "^(mon|tue|wed|thu|fri|sat|sun) ([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$",
+      "^(MON|TUE|WED|THU|FRI|SAT|SUN) ([01][0-9]|2[0-3]):[0-5][0-9]$",
       var.postgres_maintenance_window_start,
     ))
-    error_message = "postgres_maintenance_window_start must use day HH:MM:SS, for example sun 03:00:00."
+    error_message = "postgres_maintenance_window_start must use OCI PostgreSQL DAY HH:MM format, for example SUN 03:00."
   }
 }
 
