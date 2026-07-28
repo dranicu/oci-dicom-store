@@ -51,7 +51,11 @@ cd "${project_dir}"
 terraform fmt -check -recursive
 terraform init
 terraform validate
-terraform plan -out="${plan_file}" "${terraform_args[@]}"
+if ((${#terraform_args[@]})); then
+  terraform plan -out="${plan_file}" "${terraform_args[@]}"
+else
+  terraform plan -out="${plan_file}"
+fi
 
 plan_json="$(terraform show -json "${plan_file}")"
 identity_plan="$(
