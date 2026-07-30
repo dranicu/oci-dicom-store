@@ -6,7 +6,7 @@ DICOM_FILE ?=
 PRIVATE_KEY ?= $(HOME)/.ssh/id_rsa
 
 .PHONY: \
-	help init fmt validate plan show-plan apply apply-auto outputs verify \
+	help init fmt validate plan show-plan apply apply-auto outputs show-output verify \
 	verify-dicom verify-dicom-clean get-credentials configure-bastion \
 	bastion-status destroy destroy-auto destroy-purge destroy-purge-auto
 
@@ -27,6 +27,7 @@ help: ## Show the available deployment commands.
 		'  make configure-bastion    Configure the bastion with Ansible' \
 		'  make bastion-status       Test the private stack from the bastion' \
 		'  make outputs              Show the non-secret deployment summary' \
+		'  make show-output          Show all Terraform outputs (secrets redacted)' \
 		'  make destroy              Destroy; preserve a non-empty DICOM bucket' \
 		'  make destroy-auto         Same data-preserving destroy without confirmation' \
 		'  make destroy-purge        Permanently purge the bucket, then destroy' \
@@ -61,6 +62,9 @@ apply-auto: ## Plan and apply without confirmation, then configure the bastion.
 
 outputs: ## Show the non-secret deployment summary.
 	terraform -chdir=terraform output deployment_summary
+
+show-output: ## Show all Terraform outputs with sensitive values redacted.
+	terraform -chdir=terraform output
 
 verify: ## Check public Orthanc REST and DICOMweb endpoints.
 	./scripts/verify.sh
