@@ -29,10 +29,17 @@ ssh_public_key_path = "~/.ssh/id_rsa.pub"
 # fastconnect_customer_asn            = "64512"
 # fastconnect_is_bfd_enabled          = true
 
-# Recommended production sizing starts with two application and two database
-# instances. Validate service limits and capacity before increasing these.
+# Recommended production sizing starts with two OKE workers, two Orthanc pods,
+# and two database instances. Confirm the selected OKE version is available in
+# the region before deployment.
+oke_kubernetes_version = "v1.35.2"
+oke_node_count = 2
 orthanc_replicas = 2
 postgres_instances = 2
+
+# Optional explicit S3-compatible bucket name. The bucket is always created in
+# compartment_id and is accessed through OCI's S3 compatibility endpoint.
+# object_storage_bucket_name = "hospital-dicom-images"
 
 # Optional: route alarm notifications to an existing OCI Notifications topic.
 # alarm_notification_topic_id = "ocid1.onstopic.oc1.eu-frankfurt-1.replace_me"

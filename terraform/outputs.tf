@@ -10,13 +10,13 @@ output "dicomweb_endpoint" {
 
 output "private_orthanc_endpoint" {
   description = "Private Orthanc endpoint reachable from the bastion and connected VCN networks."
-  value       = "http://${oci_load_balancer_load_balancer.orthanc.ip_address_details[0].ip_address}:8042"
+  value       = "http://${local.nlb_private_ip}:8080/orthanc"
 }
 
 output "fastconnect_private_ingest_endpoint" {
   description = "TLS private DICOMweb/Orthanc endpoint for FastConnect clients; null when disabled."
   value = var.enable_fastconnect ? (
-    "https://${oci_load_balancer_load_balancer.orthanc.ip_address_details[0].ip_address}:8443"
+    "https://${local.nlb_private_ip}:8443/orthanc"
   ) : null
 }
 
@@ -53,7 +53,7 @@ output "bastion_ssh_command" {
 }
 
 output "orthanc_username" {
-  description = "Orthanc administrator username."
+  description = "Initial Keycloak user assigned the orthanc-admin role."
   value       = var.orthanc_username
 }
 
@@ -63,8 +63,40 @@ output "postgres_username" {
 }
 
 output "orthanc_password" {
-  description = "Generated or supplied Orthanc administrator password."
+  description = "Generated or supplied initial Keycloak Orthanc administrator password."
   value       = local.orthanc_password
+  sensitive   = true
+}
+
+output "keycloak_endpoint" {
+  description = "Keycloak identity-provider endpoint and administration console root."
+  value       = "${local.public_base_url}/keycloak"
+}
+
+output "keycloak_admin_username" {
+  description = "Keycloak master-realm bootstrap administrator."
+  value       = "keycloak-admin"
+}
+
+output "keycloak_admin_password" {
+  description = "Generated Keycloak master-realm bootstrap administrator password."
+  value       = local.keycloak_admin_password
+  sensitive   = true
+}
+
+output "s3_compatibility_endpoint" {
+  description = "OCI Object Storage S3 compatibility endpoint used by Orthanc."
+  value       = local.s3_compatibility_endpoint
+}
+
+output "oke_cluster_id" {
+  description = "OKE cluster OCID."
+  value       = oci_containerengine_cluster.orthanc.id
+}
+
+output "oke_manifest" {
+  description = "Rendered sensitive Kubernetes manifest consumed by scripts/deploy-oke.sh."
+  value       = local.oke_manifest
   sensitive   = true
 }
 
@@ -77,27 +109,27 @@ output "postgres_password" {
 output "resource_ocids" {
   description = "OCIDs of the deployed resources for inventory and cleanup."
   value = {
-    vcn                = oci_core_vcn.dicom.id
-    gateway_subnet     = oci_core_subnet.gateway.id
-    management_subnet  = oci_core_subnet.management.id
-    application_subnet = oci_core_subnet.application.id
-    database_subnet    = oci_core_subnet.database.id
-    bastion            = oci_core_instance.bastion.id
-    drg                = try(oci_core_drg.fastconnect[0].id, null)
-    drg_attachment     = try(oci_core_drg_attachment.dicom[0].id, null)
-    virtual_circuit    = try(oci_core_virtual_circuit.dicom[0].id, null)
-    api_gateway        = oci_apigateway_gateway.orthanc.id
-    api_deployment     = oci_apigateway_deployment.orthanc.id
-    load_balancer      = oci_load_balancer_load_balancer.orthanc.id
-    postgres           = oci_psql_db_system.orthanc.id
-    bucket             = oci_objectstorage_bucket.dicom.id
-    log_group          = oci_logging_log_group.dicom.id
-    container_instances = [
-      for instance in oci_container_instances_container_instance.orthanc : instance.id
-    ]
-    containers = [
-      for instance in oci_container_instances_container_instance.orthanc : instance.containers[0].container_id
-    ]
+    vcn                 = oci_core_vcn.dicom.id
+    gateway_subnet      = oci_core_subnet.gateway.id
+    management_subnet   = oci_core_subnet.management.id
+    application_subnet  = oci_core_subnet.application.id
+    oke_api_subnet      = oci_core_subnet.oke_api.id
+    oke_nodes_subnet    = oci_core_subnet.oke_nodes.id
+    oke_pods_subnet     = oci_core_subnet.oke_pods.id
+    database_subnet     = oci_core_subnet.database.id
+    bastion             = oci_core_instance.bastion.id
+    drg                 = try(oci_core_drg.fastconnect[0].id, null)
+    drg_attachment      = try(oci_core_drg_attachment.dicom[0].id, null)
+    virtual_circuit     = try(oci_core_virtual_circuit.dicom[0].id, null)
+    api_gateway         = oci_apigateway_gateway.orthanc.id
+    api_deployment      = oci_apigateway_deployment.orthanc.id
+    keycloak_deployment = oci_apigateway_deployment.keycloak.id
+    reserved_nlb_ip     = oci_core_private_ip.orthanc_nlb.id
+    oke_cluster         = oci_containerengine_cluster.orthanc.id
+    oke_node_pool       = oci_containerengine_node_pool.orthanc.id
+    postgres            = oci_psql_db_system.orthanc.id
+    bucket              = oci_objectstorage_bucket.dicom.id
+    log_group           = oci_logging_log_group.dicom.id
   }
 }
 
@@ -110,13 +142,21 @@ output "deployment_summary" {
     bastion_ssh_command = "ssh opc@${oci_core_instance.bastion.public_ip}"
     api_endpoint        = "https://${oci_apigateway_gateway.orthanc.hostname}/orthanc"
     dicomweb_endpoint   = "https://${oci_apigateway_gateway.orthanc.hostname}/orthanc/dicom-web"
-    private_endpoint    = "http://${oci_load_balancer_load_balancer.orthanc.ip_address_details[0].ip_address}:8042"
+    keycloak_endpoint   = "${local.public_base_url}/keycloak"
+    private_endpoint    = "http://${local.nlb_private_ip}:8080/orthanc"
     private_ingest_endpoint = var.enable_fastconnect ? (
-      "https://${oci_load_balancer_load_balancer.orthanc.ip_address_details[0].ip_address}:8443"
+      "https://${local.nlb_private_ip}:8443/orthanc"
     ) : null
-    bucket_name         = oci_objectstorage_bucket.dicom.name
-    namespace           = data.oci_objectstorage_namespace.this.namespace
-    postgres_private_ip = oci_psql_db_system.orthanc.network_details[0].primary_db_endpoint_private_ip
-    replicas            = var.orthanc_replicas
+    bucket_name            = oci_objectstorage_bucket.dicom.name
+    namespace              = data.oci_objectstorage_namespace.this.namespace
+    s3_endpoint            = local.s3_compatibility_endpoint
+    oke_cluster_id         = oci_containerengine_cluster.orthanc.id
+    oke_node_pool_id       = oci_containerengine_node_pool.orthanc.id
+    oke_kubernetes_version = var.oke_kubernetes_version
+    oke_node_image         = local.oke_node_image_name
+    bastion_kubectl_arch   = local.bastion_kubectl_arch
+    nlb_private_ip         = local.nlb_private_ip
+    postgres_private_ip    = oci_psql_db_system.orthanc.network_details[0].primary_db_endpoint_private_ip
+    replicas               = var.orthanc_replicas
   }
 }

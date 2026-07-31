@@ -3,10 +3,12 @@
 This repository is a complete Terraform deployment of the core store in
 Oracle's [cloud-native DICOM reference architecture](https://docs.oracle.com/en/solutions/cloud-native-dicom-on-oci/index.html):
 
-- Orthanc DICOMweb and REST APIs on private OCI Container Instances
+- Orthanc DICOMweb and REST APIs on private OCI Kubernetes Engine (OKE)
+- Keycloak plus the official Orthanc authorization service
+- viewer, uploader, editor, and administrator application roles
 - OCI Database with PostgreSQL for the Orthanc metadata index
-- private, versioned OCI Object Storage for DICOM payloads
-- a private flexible load balancer across multiple Orthanc replicas
+- private, versioned OCI Object Storage accessed through its S3-compatible API
+- an OKE-managed private Network Load Balancer with a reserved private address
 - a public HTTPS OCI API Gateway facade with CIDR filtering and rate limiting
 - regional VCN, private application/database tiers, NSGs, NAT, and service gateway
 - an SSH-key-only Oracle Linux bastion on a dedicated management subnet
@@ -17,11 +19,10 @@ Oracle's [cloud-native DICOM reference architecture](https://docs.oracle.com/en/
 - automated deploy, verification, Resource Manager packaging, and teardown
 
 The design follows Oracle's recommendation to use regional subnets and NSGs.
-The deployment uses Container Instances rather than OKE for the store because
-Orthanc is the only defined application workload in the reference solution.
-OKE inference/training workloads, FastConnect circuits, and Roving Edge devices
-are environment-specific integration points; no model, circuit, CPE, or physical
-device configuration is specified by the reference.
+OKE uses an enhanced private control plane and VCN-native pod networking.
+FastConnect circuits and Roving Edge devices remain environment-specific
+integration points; no carrier circuit, CPE, or physical device configuration
+can be inferred from the reference architecture.
 
 ## Architecture
 
@@ -29,19 +30,22 @@ device configuration is specified by the reference.
 flowchart LR
   Client["Hospital / DICOMweb client"] -->|"HTTPS, ≤20 MB"| APIGW["Public API Gateway"]
   Admin["Approved administrator"] -->|"SSH key"| Bastion["Operator bastion"]
-  APIGW --> PLB["Private flexible LB"]
-  Bastion --> PLB
+  APIGW --> NLB["Private OCI NLB<br/>reserved IP"]
+  Bastion --> OKE
   Bastion --> PG
-  PLB --> O1["Orthanc container 1"]
-  PLB --> O2["Orthanc container 2"]
-  O1 & O2 --> PG["OCI PostgreSQL<br/>metadata index"]
-  O1 & O2 --> OS["OCI Object Storage<br/>DICOM payloads"]
-  OnPrem["On-premises network"] -->|"Optional FastConnect<br/>TLS :8443"| PLB
-  AI["OKE / Data Science integration"] -. "DICOMweb / Object APIs" .-> APIGW
+  NLB --> Proxy["OKE gateway"]
+  Proxy --> OKE["Orthanc pods"]
+  Proxy --> KC["Keycloak IdP"]
+  OKE --> Auth["Orthanc auth service"]
+  Auth --> KC
+  OKE --> PG["OCI PostgreSQL<br/>metadata index"]
+  KC --> PG
+  OKE --> OS["OCI Object Storage<br/>S3-compatible payloads"]
+  OnPrem["On-premises network"] -->|"Optional FastConnect<br/>TLS :8443"| NLB
 ```
 
 All application and database VNICs are private. API Gateway terminates public
-TLS; traffic from the gateway to the private load balancer stays inside the VCN.
+TLS; traffic from the gateway to the private NLB stays inside the VCN.
 Orthanc disables traditional DICOM SCP port 4242 and exposes DICOMweb instead,
 matching the reference architecture's API Gateway flow.
 
@@ -53,9 +57,10 @@ matching the reference architecture's API Gateway flow.
   `create_storage_identity = true`, or execution through an instance/resource
   principal
 - a tenancy OCID, target compartment OCID, workload region, and tenancy home region
-- sufficient OCI service limits for API Gateway, flexible Load Balancer,
-  Container Instances, and OCI Database with PostgreSQL
-- tenancy IAM privileges if `create_storage_identity = true`
+- sufficient OCI service limits for API Gateway, OKE enhanced clusters, Compute
+  worker nodes, Network Load Balancer, and OCI Database with PostgreSQL
+- tenancy IAM privileges for the bastion dynamic group and OKE service policy,
+  plus user/group privileges if `create_storage_identity = true`
 
 Read [IAM prerequisites](docs/iam.md) before applying. The local `~/.oci/config`
 is read through the selected profile; key material is never copied into this
@@ -124,11 +129,13 @@ planning arguments with `TF_ARGS`, for example
    scripts/deploy.sh --auto-approve
    ```
 
-Provisioning managed PostgreSQL commonly takes tens of minutes. The script is
+Provisioning managed PostgreSQL and OKE commonly takes tens of minutes. The script is
 idempotent: after a partial service failure, correct the service-limit, capacity,
 or policy issue and run it again. When `BASTION_SSH_PRIVATE_KEY_FILE` is set,
-the deployment finishes by running Ansible against the new bastion. Without it,
-Terraform still creates the VM and prints the separate configuration command.
+the deployment finishes by configuring the bastion, generating an
+instance-principal kubeconfig, applying the Orthanc/Keycloak workloads, and
+waiting for the private NLB. Without it, Terraform creates the infrastructure
+and prints the two commands required to finish workload deployment.
 
 ## Bastion access
 
@@ -139,19 +146,21 @@ scripts/ssh-bastion.sh
 sudo dicom-status
 sudo dicom-env
 sudo dicom-psql
+kubectl get pods -A
 ```
 
 `dicom-status` tests Orthanc `/system`, a private DICOMweb QIDO-RS request, and
 the managed PostgreSQL port. `dicom-env` shows non-secret endpoints, while
 `dicom-psql` opens the TLS-protected metadata database. Ansible stores runtime
 credentials in `/etc/oci-dicom/stack.json`, owned by root with mode `0600`.
-The bastion has no OCI API key copied to it; configure a short-lived OCI CLI
-session there only if your operating policy requires control-plane commands.
+The bastion has no OCI API key copied to it. Its exact instance OCID is the only
+member of a Terraform-managed dynamic group allowed to use this OKE cluster.
 
 To rerun the idempotent configuration:
 
 ```bash
 scripts/configure-bastion.sh --private-key /absolute/path/to/id_rsa
+scripts/deploy-oke.sh --private-key /absolute/path/to/id_rsa
 ```
 
 ## Verify
@@ -187,8 +196,9 @@ Retrieve credentials only when needed:
 make get-credentials
 ```
 
-The verifier stores credentials in a mode-0600 temporary netrc file, removes it
-on exit, checks Orthanc `/system`, and runs a DICOMweb QIDO-RS query. Generated
+The verifier exchanges the generated initial administrator credential for a
+short-lived Keycloak access token, checks Orthanc `/system`, and runs a
+DICOMweb QIDO-RS query. Generated
 DICOM files contain no patient data. Samples uploaded with `make verify-dicom`
 remain in Orthanc until deleted from the Web UI; `make verify-dicom-clean`
 removes its sample automatically.
@@ -204,14 +214,14 @@ not a universal bulk-ingest path.
 For larger studies, connect the on-premises network to the private VCN with
 FastConnect. Setting `enable_fastconnect = true` creates a DRG, VCN attachment,
 on-premises routes, a private partner virtual circuit, and a TLS listener on
-port 8443. This is an alternate path around API Gateway; it does not change
+port 8443 on the private OKE NLB. This is an alternate path around API Gateway; it does not change
 the gateway's limit.
 
 The carrier circuit, provider activation key, and on-premises BGP router cannot
 be ordered or configured by OCI Terraform. See
 [FastConnect setup](docs/fastconnect.md) for the required inputs, activation
 sequence, secure endpoint, and redundancy guidance. Do not make the private
-load balancer public merely to bypass the limit.
+NLB public merely to bypass the limit.
 
 ## Security and state
 
@@ -222,7 +232,12 @@ load balancer public merely to bypass the limit.
 - SSH reaches only the bastion, only from approved administrator CIDRs, using
   public-key authentication; the bastion can reach only Orthanc, PostgreSQL,
   DNS, and outbound HTTPS.
-- Orthanc basic authentication is enabled with a generated 32-character password.
+- Keycloak handles OIDC authentication; Orthanc delegates access decisions to
+  the official authorization service.
+- Realm roles map to `orthanc-viewer`, `orthanc-uploader`, `orthanc-editor`, and
+  `orthanc-admin` permission profiles. The generated initial user is an admin.
+- Use `make get-credentials` for the initial user and Keycloak bootstrap admin,
+  then create named users and assign the minimum role in the Keycloak console.
 - API access and execution logs are enabled. Pass
   `alarm_notification_topic_id` to activate backend-health and API-5xx alarms.
 - DICOM and patient identifiers must not be placed in resource names, tags, or logs.
@@ -230,9 +245,10 @@ load balancer public merely to bypass the limit.
   private key is protected in Terraform state and only its public certificate
   is distributed to clients.
 
-Orthanc's S3 plugin requires an access/secret pair; it cannot sign OCI requests
-with a Container Instances resource principal. The dedicated Customer Secret
-Key, database password, and Orthanc password therefore exist in Terraform state.
+Orthanc's S3 plugin requires an access/secret pair; it cannot sign the S3
+compatibility protocol with OKE workload identity. The dedicated Customer Secret
+Key, database passwords, Keycloak secrets, and initial user password therefore
+exist in Terraform state.
 Use encrypted remote state with strict operator access. OCI Resource Manager is
 the recommended production runner:
 
@@ -240,7 +256,9 @@ the recommended production runner:
 scripts/package-resource-manager.sh
 ```
 
-The packager reads `~/.ssh/id_rsa.pub` by default and embeds only that public
+The Resource Manager package creates infrastructure and emits the sensitive OKE
+manifest as an output; apply it from the configured bastion with
+`scripts/deploy-oke.sh`. The packager reads `~/.ssh/id_rsa.pub` by default and embeds only that public
 key as `bastion.pub`, with an automatic path override for the Resource Manager
 runner. To select another public key:
 
@@ -280,6 +298,9 @@ then permanently removes the bucket, all current and versioned objects,
 pre-authenticated requests, replication policies, and uncommitted multipart
 uploads before destroying the rest of the stack. The non-interactive
 `make destroy-purge-auto` target is intended only for controlled automation.
+Before either destroy path runs Terraform, the script deletes the OKE namespace
+and waits for Kubernetes to remove its NLB, preventing an unmanaged NLB from
+blocking VCN/subnet deletion.
 
 ## Reference implementation notes
 

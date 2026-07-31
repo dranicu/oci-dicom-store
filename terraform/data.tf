@@ -22,3 +22,17 @@ data "oci_core_services" "all_services" {
 data "oci_objectstorage_namespace" "this" {
   compartment_id = var.tenancy_id
 }
+
+data "oci_containerengine_cluster_option" "versions" {
+  cluster_option_id              = "all"
+  compartment_id                 = var.compartment_id
+  should_list_all_patch_versions = true
+}
+
+data "oci_containerengine_node_pool_option" "sources" {
+  node_pool_option_id            = "all"
+  compartment_id                 = var.compartment_id
+  node_pool_k8s_version          = var.oke_kubernetes_version
+  node_pool_os_arch              = local.oke_node_arch
+  should_list_all_patch_versions = true
+}

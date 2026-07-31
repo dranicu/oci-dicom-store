@@ -145,9 +145,13 @@ if [[ -n "${BASTION_SSH_PRIVATE_KEY_FILE:-}" ]]; then
   printf '\nConfiguring the operator bastion with Ansible...\n'
   "${project_dir}/scripts/configure-bastion.sh" \
     --private-key "${BASTION_SSH_PRIVATE_KEY_FILE}"
+  printf '\nDeploying Orthanc and Keycloak to private OKE...\n'
+  "${project_dir}/scripts/deploy-oke.sh" \
+    --private-key "${BASTION_SSH_PRIVATE_KEY_FILE}"
 else
-  printf '\nBastion VM created. Configure it with:\n'
+  printf '\nInfrastructure created. Configure the bastion and deploy OKE with:\n'
   printf 'scripts/configure-bastion.sh --private-key /path/to/private/key\n'
+  printf 'scripts/deploy-oke.sh --private-key /path/to/private/key\n'
 fi
 
 printf '\nRun scripts/verify.sh to check the deployed control plane and DICOM APIs.\n'

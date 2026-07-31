@@ -8,16 +8,6 @@ private_ingest_endpoint="$(jq -r '.private_ingest_endpoint // empty' "${config_f
 orthanc_user="$(jq -r '.orthanc_username' "${config_file}")"
 orthanc_password="$(jq -r '.orthanc_password' "${config_file}")"
 postgres_host="$(jq -r '.postgres_host' "${config_file}")"
-basic_auth="$(
-  printf '%s:%s' "${orthanc_user}" "${orthanc_password}" |
-    base64 |
-    tr -d '\n'
-)"
-
-orthanc_curl() {
-  printf 'header = "Authorization: Basic %s"\n' "${basic_auth}" |
-    curl --config - "$@"
-}
 
 curl_tls_options=()
 if [[ -n "${private_ingest_endpoint}" ]] &&
@@ -25,6 +15,31 @@ if [[ -n "${private_ingest_endpoint}" ]] &&
   private_endpoint="${private_ingest_endpoint}"
   curl_tls_options+=(--cacert /etc/oci-dicom/private-ingest-ca.pem)
 fi
+
+private_base="${private_endpoint%/orthanc}"
+token_json="$(
+  curl \
+    --fail \
+    --silent \
+    --show-error \
+    "${curl_tls_options[@]}" \
+    -X POST \
+    -H 'Content-Type: application/x-www-form-urlencoded' \
+    --data-urlencode 'client_id=orthanc' \
+    --data-urlencode 'grant_type=password' \
+    --data-urlencode "username=${orthanc_user}" \
+    --data-urlencode "password=${orthanc_password}" \
+    "${private_base}/keycloak/realms/orthanc/protocol/openid-connect/token"
+)"
+access_token="$(jq -r '.access_token // empty' <<<"${token_json}")"
+[[ -n "${access_token}" ]] || {
+  printf 'Unable to obtain the Orthanc administrator OIDC token.\n' >&2
+  exit 1
+}
+
+orthanc_curl() {
+  curl -H "Authorization: Bearer ${access_token}" "$@"
+}
 
 printf 'Deployment: %s\n' "$(jq -r '.deployment_name' "${config_file}")"
 printf 'Orthanc private endpoint: '

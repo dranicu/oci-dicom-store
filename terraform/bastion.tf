@@ -14,7 +14,7 @@ resource "oci_core_instance" "bastion" {
     assign_public_ip = true
     display_name     = "${local.resource_name}-bastion"
     hostname_label   = "bastion"
-    nsg_ids          = [oci_core_network_security_group.bastion.id]
+    nsg_ids          = [local.bastion_nsg.id]
     subnet_id        = oci_core_subnet.management.id
   }
 

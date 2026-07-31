@@ -73,7 +73,7 @@ resource "tls_self_signed_cert" "private_ingest" {
   validity_period_hours = 8760
   early_renewal_hours   = 720
   ip_addresses = [
-    oci_load_balancer_load_balancer.orthanc.ip_address_details[0].ip_address,
+    local.nlb_private_ip,
   ]
 
   subject {
@@ -86,39 +86,4 @@ resource "tls_self_signed_cert" "private_ingest" {
     "key_encipherment",
     "server_auth",
   ]
-}
-
-resource "oci_load_balancer_certificate" "private_ingest" {
-  count = var.enable_fastconnect ? 1 : 0
-
-  load_balancer_id   = oci_load_balancer_load_balancer.orthanc.id
-  certificate_name   = "private-ingest-${local.suffix}"
-  private_key        = tls_private_key.private_ingest[0].private_key_pem
-  public_certificate = tls_self_signed_cert.private_ingest[0].cert_pem
-
-  timeouts {
-    create = "30m"
-    update = "30m"
-    delete = "30m"
-  }
-}
-
-resource "oci_load_balancer_listener" "private_ingest" {
-  count = var.enable_fastconnect ? 1 : 0
-
-  load_balancer_id         = oci_load_balancer_load_balancer.orthanc.id
-  name                     = "orthanc-private-tls"
-  default_backend_set_name = oci_load_balancer_backend_set.orthanc.name
-  port                     = 8443
-  protocol                 = "HTTP"
-
-  connection_configuration {
-    idle_timeout_in_seconds = 1200
-  }
-
-  ssl_configuration {
-    certificate_name        = oci_load_balancer_certificate.private_ingest[0].certificate_name
-    protocols               = ["TLSv1.2"]
-    server_order_preference = "ENABLED"
-  }
 }

@@ -1,14 +1,14 @@
 # FastConnect private ingest
 
 FastConnect is optional. It provides a private path from an on-premises network
-to the stack's private load balancer, avoiding OCI API Gateway's fixed 20 MB
+to the stack's private OKE Network Load Balancer, avoiding OCI API Gateway's fixed 20 MB
 request-size limit. FastConnect does not increase that API Gateway limit.
 
 Terraform automates the OCI side:
 
 - a Dynamic Routing Gateway (DRG)
 - a VCN attachment and routes for the declared on-premises CIDRs
-- private load-balancer and bastion NSG access from those CIDRs
+- private NLB and bastion NSG access from those CIDRs
 - one private FastConnect partner virtual circuit
 - a TLS listener on port 8443 for encrypted Orthanc and DICOMweb traffic
 
@@ -82,7 +82,7 @@ data-plane check succeeds.
 
 FastConnect is private connectivity, but the circuit itself is not application
 encryption. The stack therefore creates a self-signed server certificate with
-the private load-balancer address as an IP subject alternative name.
+the reserved private NLB address as an IP subject alternative name.
 
 Export the public trust certificate when configuring a client manually:
 
@@ -92,8 +92,8 @@ terraform -chdir=terraform output -raw fastconnect_private_ingest_certificate \
 terraform -chdir=terraform output -raw fastconnect_private_ingest_endpoint
 ```
 
-The private key remains in encrypted Terraform state and in the OCI Load
-Balancer certificate store. The certificate renews during a Terraform apply
+The private key remains in encrypted Terraform state and a Kubernetes TLS
+Secret. The certificate renews during a Terraform apply
 within 30 days of its one-year expiration; redistribute the new public
 certificate before switching clients. Organizations with an internal PKI can
 replace the generated certificate resources with their approved certificate

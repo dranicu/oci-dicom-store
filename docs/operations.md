@@ -18,12 +18,12 @@ Then review:
 
 - API Gateway access and execution logs in the generated log group
 - `oci_apigateway` `HttpResponses`, `BackendHttpResponses`, and latency metrics
-- `oci_lbaas` `unhealthyBackendServers` and backend timeout metrics
+- OKE node/pod readiness and the `dicom-gateway` Service/NLB state
 - PostgreSQL state and backup history
 - Object Storage object count, size, and version growth
-- Container Instances lifecycle and health-check state
+- OKE managed node-pool lifecycle and Kubernetes deployment rollout state
 
-Supplying an existing Notifications topic enables the two built-in alarms.
+Supplying an existing Notifications topic enables the API Gateway 5xx alarm.
 Create OCI Health Checks from an approved private or public vantage point if
 you need independent liveness monitoring. Orthanc endpoints require
 authentication, so do not create an unauthenticated health route containing
@@ -51,6 +51,7 @@ sudo dicom-status
 sudo dicom-env
 sudo dicom-psql
 sudo journalctl -u sshd
+kubectl get pods -A
 ```
 
 The root-only stack file contains Orthanc and PostgreSQL credentials. Rotate
@@ -60,36 +61,41 @@ short-lived security-token session if OCI CLI access is required.
 
 ## Scaling
 
-Increase `orthanc_replicas` to add Container Instances. They share the
-PostgreSQL index and Object Storage payloads; the private load balancer adds the
-new backends automatically.
+Increase `orthanc_replicas` to add Orthanc pods. They share the PostgreSQL index
+and S3-compatible Object Storage payloads; the Kubernetes Service updates its
+backends automatically. Increase `oke_node_count` when pod capacity requires it.
 
 Before scaling:
 
-1. Confirm Container Instances shape capacity and service limits.
-2. Confirm the application subnet has sufficient addresses.
+1. Confirm OKE worker shape capacity, node limits, and pod-subnet addresses.
+2. Confirm the node and NLB subnets have sufficient addresses.
 3. Increase PostgreSQL OCPUs/memory or instance count if index pressure is the
    bottleneck.
-4. Review the flexible load balancer maximum bandwidth.
+4. Review Network Load Balancer throughput and FastConnect capacity.
 
 Multiple Orthanc replicas use `PostgreSQL.Lock = false`, as required for shared
 index access. Keep every replica on the same pinned image and configuration.
 
 ## Credential rotation
 
-For generated credentials, use Terraform replacement so dependent Container
-Instances receive the same atomic configuration:
+For generated credentials, use Terraform replacement and then run
+`make deploy-oke` so Kubernetes secrets and dependent pods are updated:
 
 ```bash
 terraform -chdir=terraform apply \
-  -replace=random_password.orthanc \
   -replace=random_password.postgres \
+  -replace=random_password.keycloak_admin \
+  -replace=random_password.keycloak_database \
   -replace='oci_identity_customer_secret_key.orthanc[0]'
 ```
 
 Review the plan carefully. Replacing the PostgreSQL password may require a
 service-supported password update and coordinated Orthanc replacement. Test
 rotation in a non-production stack first.
+
+Rotate application-user passwords in Keycloak rather than replacing
+`random_password.orthanc`; realm import is bootstrap-only and does not
+overwrite users in an existing realm.
 
 For an existing storage identity, create a second Customer Secret Key, update
 the sensitive input variables, apply, verify all replicas and Object Storage
@@ -119,9 +125,9 @@ region and legal residency requirements are deployment-specific.
 4. Review database schema migration and rollback compatibility.
 5. Apply in production and monitor backend health and 5xx rates.
 
-Container Instance replacement uses create-before-destroy, and the load
-balancer removes unhealthy backends from rotation. Do not use a floating
-`latest` image tag.
+Kubernetes performs a rolling deployment and the NLB removes unhealthy
+backends from rotation. Upgrade OKE control plane and nodes one supported
+version at a time. Do not use a floating `latest` image tag.
 
 ## Large-file ingest
 
@@ -161,7 +167,9 @@ restrict calling AEs and network sources.
 
 1. Stop new ingest and record the approved retention disposition.
 2. Export and verify required studies and audit evidence.
-3. Run `make destroy`. If the bucket is non-empty, the destroy fails by design
+3. Ensure the matching bastion private key is available at `PRIVATE_KEY`, then
+   run `make destroy`. The script removes the Kubernetes namespace and waits
+   for its NLB to be deleted. If the bucket is non-empty, destroy fails by design
    and leaves the DICOM data intact.
 4. If retention requires preserving the data, do not bypass that failure.
 5. If an authorized data custodian has approved permanent deletion, run

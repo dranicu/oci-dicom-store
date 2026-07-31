@@ -81,9 +81,33 @@ variable "management_subnet_cidr" {
 }
 
 variable "application_subnet_cidr" {
-  description = "Regional private subnet for Orthanc container instances and the private load balancer."
+  description = "Regional private subnet used by the OKE-created internal Network Load Balancer."
   type        = string
   default     = "10.42.10.0/24"
+}
+
+variable "oke_api_subnet_cidr" {
+  description = "Regional private subnet for the OKE Kubernetes API endpoint."
+  type        = string
+  default     = "10.42.2.0/28"
+}
+
+variable "oke_nodes_subnet_cidr" {
+  description = "Regional private subnet for OKE worker-node VNICs."
+  type        = string
+  default     = "10.42.11.0/24"
+}
+
+variable "oke_pods_subnet_cidr" {
+  description = "Regional private subnet for VCN-native OKE pod VNICs."
+  type        = string
+  default     = "10.42.12.0/22"
+}
+
+variable "oke_services_cidr" {
+  description = "Kubernetes Service CIDR; it must not overlap the VCN or connected networks."
+  type        = string
+  default     = "10.96.0.0/16"
 }
 
 variable "database_subnet_cidr" {
@@ -273,8 +297,32 @@ variable "orthanc_image" {
   default     = "orthancteam/orthanc:26.7.0"
 }
 
+variable "orthanc_auth_service_image" {
+  description = "Pinned official Orthanc authorization-service image."
+  type        = string
+  default     = "orthancteam/orthanc-auth-service:26.4.0"
+}
+
+variable "keycloak_image" {
+  description = "Pinned upstream Keycloak image."
+  type        = string
+  default     = "quay.io/keycloak/keycloak:26.4.0"
+}
+
+variable "nginx_image" {
+  description = "Pinned reverse-proxy image used inside OKE."
+  type        = string
+  default     = "nginx:1.29.4-alpine"
+}
+
+variable "postgres_client_image" {
+  description = "Pinned PostgreSQL image used only by the idempotent Keycloak database bootstrap Job."
+  type        = string
+  default     = "postgres:17.5-alpine"
+}
+
 variable "orthanc_replicas" {
-  description = "Number of Orthanc container instances distributed across availability domains."
+  description = "Number of Orthanc pods distributed across OKE worker nodes."
   type        = number
   default     = 2
 
@@ -284,22 +332,51 @@ variable "orthanc_replicas" {
   }
 }
 
-variable "container_shape" {
-  description = "Flexible Container Instances shape."
+variable "oke_kubernetes_version" {
+  description = "OKE control-plane and managed-node Kubernetes version."
   type        = string
-  default     = "CI.Standard.E4.Flex"
+  default     = "v1.35.2"
 }
 
-variable "container_ocpus" {
-  description = "OCPUs per Orthanc container instance."
-  type        = number
-  default     = 1
+variable "oke_node_shape" {
+  description = "Flexible Compute shape for the OKE managed node pool."
+  type        = string
+  default     = "VM.Standard.E5.Flex"
 }
 
-variable "container_memory_gb" {
-  description = "Memory in GiB per Orthanc container instance."
+variable "oke_node_count" {
+  description = "Total number of OKE worker nodes."
   type        = number
-  default     = 8
+  default     = 2
+
+  validation {
+    condition     = var.oke_node_count >= 2 && var.oke_node_count <= 12
+    error_message = "oke_node_count must be between 2 and 12."
+  }
+}
+
+variable "oke_node_ocpus" {
+  description = "OCPUs per OKE worker node."
+  type        = number
+  default     = 2
+}
+
+variable "oke_node_memory_gb" {
+  description = "Memory in GiB per OKE worker node."
+  type        = number
+  default     = 16
+}
+
+variable "oke_node_boot_volume_gb" {
+  description = "Boot volume size in GiB for each OKE worker node."
+  type        = number
+  default     = 80
+}
+
+variable "oke_max_pods_per_node" {
+  description = "Maximum VCN-native pods per OKE worker node."
+  type        = number
+  default     = 31
 }
 
 variable "orthanc_aet" {
@@ -314,13 +391,13 @@ variable "orthanc_aet" {
 }
 
 variable "orthanc_username" {
-  description = "Orthanc API administrator username."
+  description = "Initial Keycloak user with the orthanc-admin role."
   type        = string
   default     = "orthanc-admin"
 }
 
 variable "orthanc_password" {
-  description = "Optional Orthanc password. A strong random value is generated when null."
+  description = "Optional initial Keycloak Orthanc administrator password. A strong random value is generated when null."
   type        = string
   default     = null
   sensitive   = true
@@ -424,9 +501,23 @@ variable "postgres_maintenance_window_start" {
 }
 
 variable "object_storage_bucket_name" {
-  description = "Optional explicit bucket name. A regionally unique suffix is added when null."
+  description = "Optional S3-compatible bucket name. A regionally unique suffix is added when null."
   type        = string
   default     = null
+
+  validation {
+    condition = (
+      var.object_storage_bucket_name == null ||
+      (
+        length(var.object_storage_bucket_name) >= 3 &&
+        length(var.object_storage_bucket_name) <= 63 &&
+        can(regex("^[a-z0-9][a-z0-9.-]*[a-z0-9]$", var.object_storage_bucket_name)) &&
+        !can(regex("\\.\\.", var.object_storage_bucket_name)) &&
+        !can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$", var.object_storage_bucket_name))
+      )
+    )
+    error_message = "object_storage_bucket_name must satisfy S3 DNS naming rules (3-63 lowercase letters, digits, dots, or hyphens; no adjacent dots or IP-address form)."
+  }
 }
 
 variable "create_storage_identity" {
@@ -472,18 +563,6 @@ variable "enable_object_versioning" {
   default     = true
 }
 
-variable "load_balancer_min_bandwidth_mbps" {
-  description = "Minimum flexible load balancer bandwidth."
-  type        = number
-  default     = 10
-}
-
-variable "load_balancer_max_bandwidth_mbps" {
-  description = "Maximum flexible load balancer bandwidth."
-  type        = number
-  default     = 100
-}
-
 variable "api_rate_limit_rps" {
   description = "Per-client API Gateway request rate."
   type        = number
@@ -497,7 +576,7 @@ variable "cors_allowed_origins" {
 }
 
 variable "alarm_notification_topic_id" {
-  description = "Optional Notifications topic OCID for unhealthy backend and 5xx alarms."
+  description = "Optional Notifications topic OCID for API Gateway 5xx alarms."
   type        = string
   default     = null
 }

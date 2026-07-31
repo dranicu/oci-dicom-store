@@ -5,7 +5,7 @@ resource "oci_apigateway_gateway" "orthanc" {
   subnet_id      = oci_core_subnet.gateway.id
 
   network_security_group_ids = [
-    oci_core_network_security_group.gateway.id,
+    local.gateway_nsg.id,
   ]
 
   freeform_tags = local.tags
@@ -61,7 +61,7 @@ resource "oci_apigateway_deployment" "orthanc" {
 
       backend {
         type                       = "HTTP_BACKEND"
-        url                        = "http://${oci_load_balancer_load_balancer.orthanc.ip_address_details[0].ip_address}:8042/"
+        url                        = "http://${local.nlb_private_ip}:8080/orthanc/"
         connect_timeout_in_seconds = 10
         read_timeout_in_seconds    = 300
         send_timeout_in_seconds    = 300
@@ -74,7 +74,7 @@ resource "oci_apigateway_deployment" "orthanc" {
 
       backend {
         type                       = "HTTP_BACKEND"
-        url                        = "http://${oci_load_balancer_load_balancer.orthanc.ip_address_details[0].ip_address}:8042/$${request.path[request_path]}"
+        url                        = "http://${local.nlb_private_ip}:8080/orthanc/$${request.path[request_path]}"
         connect_timeout_in_seconds = 10
         read_timeout_in_seconds    = 300
         send_timeout_in_seconds    = 300
@@ -82,10 +82,77 @@ resource "oci_apigateway_deployment" "orthanc" {
     }
   }
 
-  depends_on = [
-    oci_load_balancer_backend.orthanc,
-    oci_load_balancer_listener.orthanc,
-  ]
+  timeouts {
+    create = "30m"
+    update = "30m"
+    delete = "30m"
+  }
+}
+
+resource "oci_apigateway_deployment" "keycloak" {
+  compartment_id = var.compartment_id
+  gateway_id     = oci_apigateway_gateway.orthanc.id
+  display_name   = "${local.resource_name}-keycloak"
+  path_prefix    = "/keycloak"
+  freeform_tags  = local.tags
+
+  specification {
+    logging_policies {
+      access_log {
+        is_enabled = true
+      }
+
+      execution_log {
+        is_enabled = true
+        log_level  = "WARN"
+      }
+    }
+
+    request_policies {
+      rate_limiting {
+        rate_in_requests_per_second = var.api_rate_limit_rps
+        rate_key                    = "CLIENT_IP"
+      }
+
+      dynamic "cors" {
+        for_each = length(var.cors_allowed_origins) == 0 ? [] : [1]
+        content {
+          allowed_origins              = var.cors_allowed_origins
+          allowed_methods              = ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"]
+          allowed_headers              = ["Authorization", "Content-Type", "Accept", "Origin"]
+          exposed_headers              = ["Content-Length", "Content-Type", "ETag", "Location", "Warning"]
+          is_allow_credentials_enabled = true
+          max_age_in_seconds           = 3600
+        }
+      }
+    }
+
+    routes {
+      path    = "/"
+      methods = ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"]
+
+      backend {
+        type                       = "HTTP_BACKEND"
+        url                        = "http://${local.nlb_private_ip}:8080/keycloak/"
+        connect_timeout_in_seconds = 10
+        read_timeout_in_seconds    = 300
+        send_timeout_in_seconds    = 300
+      }
+    }
+
+    routes {
+      path    = "/{request_path*}"
+      methods = ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"]
+
+      backend {
+        type                       = "HTTP_BACKEND"
+        url                        = "http://${local.nlb_private_ip}:8080/keycloak/$${request.path[request_path]}"
+        connect_timeout_in_seconds = 10
+        read_timeout_in_seconds    = 300
+        send_timeout_in_seconds    = 300
+      }
+    }
+  }
 
   timeouts {
     create = "30m"

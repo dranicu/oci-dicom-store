@@ -11,8 +11,8 @@ The deploying principal needs to manage:
 - VCNs, subnets, gateways, route tables, NSGs, and NSG rules
 - DRGs, DRG attachments, and FastConnect virtual circuits when enabled
 - Compute instances, VNICs, images, and boot volumes for the bastion
-- Container Instances
-- flexible Load Balancers
+- OKE enhanced clusters, managed node pools, and Compute worker nodes
+- OCI Network Load Balancers provisioned by the OKE cloud controller
 - API Gateway gateways and deployments
 - OCI Database with PostgreSQL systems
 - Object Storage buckets in the target compartment
@@ -62,6 +62,18 @@ Allow group <deployment>-storage to manage objects in compartment id <s3-compart
 IAM writes use the `home_region` provider alias because they must target the
 tenancy home region. This does not cause the compartment-scoped policy to be
 placed in the tenancy root.
+
+## OKE operator and service identities
+
+Terraform creates a dynamic group whose matching rule contains only the
+deployed bastion instance OCID. Its compartment policy allows `use
+cluster-family` only for the deployed OKE cluster, enabling an
+instance-principal private kubeconfig without copying an API key to the host.
+
+The OKE cluster principal receives compartment-scoped permission to create and
+delete its internal Network Load Balancer and use the VCN resources needed by
+the cloud controller. These policies are required even when
+`create_storage_identity = false`.
 
 ### Existing identity
 

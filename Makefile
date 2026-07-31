@@ -8,7 +8,7 @@ PRIVATE_KEY ?= $(HOME)/.ssh/id_rsa
 .PHONY: \
 	help init fmt validate plan show-plan apply apply-auto outputs show-output verify \
 	verify-dicom verify-dicom-clean get-credentials configure-bastion \
-	bastion-status destroy destroy-auto destroy-purge destroy-purge-auto
+	deploy-oke bastion-status destroy destroy-auto destroy-purge destroy-purge-auto
 
 help: ## Show the available deployment commands.
 	@printf '%s\n' \
@@ -23,8 +23,9 @@ help: ## Show the available deployment commands.
 		'  make verify-dicom       Upload a synthetic DICOM and keep it visible in Orthanc' \
 		'  make verify-dicom-clean Upload, verify, and remove a synthetic DICOM' \
 		'  make verify-dicom DICOM_FILE=/absolute/test.dcm  Test a supplied DICOM instead' \
-		'  make get-credentials      Display the Orthanc credentials and Web UI URL' \
+		'  make get-credentials      Display Orthanc/Keycloak credentials and URLs' \
 		'  make configure-bastion    Configure the bastion with Ansible' \
+		'  make deploy-oke           Apply/update Orthanc and Keycloak on OKE' \
 		'  make bastion-status       Test the private stack from the bastion' \
 		'  make outputs              Show the non-secret deployment summary' \
 		'  make show-output          Show all Terraform outputs (secrets redacted)' \
@@ -88,30 +89,40 @@ verify-dicom-clean: ## Upload, verify, and remove one synthetic DICOM instance.
 	./scripts/verify.sh --dicom "$${test_dicom}" --delete-after-upload
 
 get-credentials: ## Display the Orthanc login credentials and Web UI endpoint.
-	@printf 'Username: '
+	@printf 'Orthanc user (orthanc-admin role): '
 	@terraform -chdir=terraform output -raw orthanc_username
-	@printf '\nPassword: '
+	@printf '\nOrthanc user password: '
 	@terraform -chdir=terraform output -raw orthanc_password
 	@printf '\nOrthanc Web UI: '
 	@terraform -chdir=terraform output -raw api_endpoint
-	@printf '/ui/app/\n'
+	@printf '/ui/app/\nKeycloak admin user: '
+	@terraform -chdir=terraform output -raw keycloak_admin_username
+	@printf '\nKeycloak admin password: '
+	@terraform -chdir=terraform output -raw keycloak_admin_password
+	@printf '\nKeycloak admin console: '
+	@terraform -chdir=terraform output -raw keycloak_endpoint
+	@printf '/admin/\n'
 
 configure-bastion: ## Apply the Ansible operator configuration to the bastion.
 	@test -f "$(PRIVATE_KEY)" || { printf 'Private SSH key not found: %s\n' "$(PRIVATE_KEY)" >&2; exit 1; }
 	./scripts/configure-bastion.sh --private-key "$(PRIVATE_KEY)"
+
+deploy-oke: ## Apply or update the Orthanc, authorization-service, and Keycloak workloads.
+	@test -f "$(PRIVATE_KEY)" || { printf 'Private SSH key not found: %s\n' "$(PRIVATE_KEY)" >&2; exit 1; }
+	./scripts/deploy-oke.sh --private-key "$(PRIVATE_KEY)"
 
 bastion-status: ## Test private Orthanc, DICOMweb, and PostgreSQL from the bastion.
 	@test -f "$(PRIVATE_KEY)" || { printf 'Private SSH key not found: %s\n' "$(PRIVATE_KEY)" >&2; exit 1; }
 	./scripts/ssh-bastion.sh --private-key "$(PRIVATE_KEY)" sudo dicom-status
 
 destroy: ## Plan and destroy the stack with confirmation.
-	./scripts/destroy.sh
+	BASTION_SSH_PRIVATE_KEY_FILE="$(PRIVATE_KEY)" ./scripts/destroy.sh
 
 destroy-auto: ## Destroy the stack without confirmation.
-	./scripts/destroy.sh --auto-approve
+	BASTION_SSH_PRIVATE_KEY_FILE="$(PRIVATE_KEY)" ./scripts/destroy.sh --auto-approve
 
 destroy-purge: ## Permanently purge the Object Storage bucket and destroy the stack.
-	./scripts/destroy.sh --purge-bucket
+	BASTION_SSH_PRIVATE_KEY_FILE="$(PRIVATE_KEY)" ./scripts/destroy.sh --purge-bucket
 
 destroy-purge-auto: ## Permanently purge and destroy without confirmation.
-	./scripts/destroy.sh --purge-bucket --auto-approve
+	BASTION_SSH_PRIVATE_KEY_FILE="$(PRIVATE_KEY)" ./scripts/destroy.sh --purge-bucket --auto-approve

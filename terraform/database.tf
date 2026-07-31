@@ -20,7 +20,7 @@ resource "oci_psql_db_system" "orthanc" {
 
   network_details {
     subnet_id = oci_core_subnet.database.id
-    nsg_ids   = [oci_core_network_security_group.postgres.id]
+    nsg_ids   = [local.postgres_nsg.id]
   }
 
   storage_details {

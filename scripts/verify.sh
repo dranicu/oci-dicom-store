@@ -49,9 +49,10 @@ api_endpoint="$(terraform -chdir="${terraform_dir}" output -raw api_endpoint)"
 dicomweb_endpoint="$(terraform -chdir="${terraform_dir}" output -raw dicomweb_endpoint)"
 username="$(terraform -chdir="${terraform_dir}" output -raw orthanc_username)"
 password="$(terraform -chdir="${terraform_dir}" output -raw orthanc_password)"
+keycloak_endpoint="$(terraform -chdir="${terraform_dir}" output -raw keycloak_endpoint)"
 
-netrc_file="$(mktemp "${TMPDIR:-/tmp}/oci-dicom-netrc.XXXXXX")"
 uploaded_instance_id=""
+access_token=""
 cleanup() {
   if [[ "${delete_after_upload}" == true && -n "${uploaded_instance_id}" ]]; then
     curl \
@@ -60,18 +61,38 @@ cleanup() {
       --show-error \
       --connect-timeout 15 \
       --max-time 60 \
-      --netrc-file "${netrc_file}" \
+      -H "Authorization: Bearer ${access_token}" \
       -X DELETE \
       "${api_endpoint}/instances/${uploaded_instance_id}" >/dev/null \
       || printf 'Warning: could not remove synthetic DICOM instance %s.\n' "${uploaded_instance_id}" >&2
   fi
-  rm -f "${netrc_file}"
 }
 trap cleanup EXIT
-chmod 600 "${netrc_file}"
-hostname="${api_endpoint#https://}"
-hostname="${hostname%%/*}"
-printf 'machine %s login %s password %s\n' "${hostname}" "${username}" "${password}" >"${netrc_file}"
+
+token_json="$(
+  curl \
+    --fail \
+    --silent \
+    --show-error \
+    --retry 12 \
+    --retry-all-errors \
+    --connect-timeout 15 \
+    --max-time 300 \
+    -X POST \
+    -H 'Content-Type: application/x-www-form-urlencoded' \
+    --data-urlencode 'client_id=orthanc' \
+    --data-urlencode 'grant_type=password' \
+    --data-urlencode "username=${username}" \
+    --data-urlencode "password=${password}" \
+    "${keycloak_endpoint}/realms/orthanc/protocol/openid-connect/token"
+)"
+access_token="$(jq -r '.access_token // empty' <<<"${token_json}")"
+[[ -n "${access_token}" ]] || {
+  printf 'Keycloak did not return an access token: %s\n' \
+    "$(jq -r '.error_description // .error // "unknown error"' <<<"${token_json}")" >&2
+  exit 1
+}
+printf 'OK  Keycloak OIDC: %s\n' "${keycloak_endpoint}"
 
 curl_common=(
   --fail
@@ -81,7 +102,8 @@ curl_common=(
   --retry-all-errors
   --connect-timeout 15
   --max-time 300
-  --netrc-file "${netrc_file}"
+  -H
+  "Authorization: Bearer ${access_token}"
 )
 
 system_json="$(curl "${curl_common[@]}" "${api_endpoint}/system")"

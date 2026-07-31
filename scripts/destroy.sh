@@ -5,6 +5,7 @@ project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 terraform_dir="${project_dir}/terraform"
 auto_approve="false"
 purge_bucket="false"
+private_key="${BASTION_SSH_PRIVATE_KEY_FILE:-}"
 
 usage() {
   cat <<'USAGE'
@@ -14,7 +15,45 @@ By default, Object Storage data is preserved and OCI rejects deletion of a
 non-empty bucket. --purge-bucket permanently deletes the bucket, every current
 and versioned object, pre-authenticated request, replication policy, and
 uncommitted multipart upload before Terraform destroys the remaining stack.
+When an OKE deployment exists, set BASTION_SSH_PRIVATE_KEY_FILE so the script
+can delete the Kubernetes namespace and its OCI Network Load Balancer first.
 USAGE
+}
+
+cleanup_oke() {
+  if ! terraform output -raw oke_cluster_id >/dev/null 2>&1; then
+    return
+  fi
+
+  [[ -n "${private_key}" && -f "${private_key}" ]] || {
+    printf '%s\n' \
+      'An OKE deployment exists and must be removed before Terraform deletes its VCN.' \
+      'Set BASTION_SSH_PRIVATE_KEY_FILE to the key for the deployed bastion and retry.' >&2
+    exit 1
+  }
+
+  for command_name in jq ssh; do
+    command -v "${command_name}" >/dev/null 2>&1 || {
+      printf '%s is required to clean up the OKE namespace.\n' "${command_name}" >&2
+      exit 1
+    }
+  done
+
+  bastion_ip="$(terraform output -raw bastion_public_ip)"
+  namespace="$(terraform output -json deployment_summary | jq -r '.name')"
+  temporary_known_hosts="$(mktemp "${TMPDIR:-/tmp}/oci-dicom-known-hosts.XXXXXX")"
+  trap 'rm -f "${temporary_known_hosts}"' RETURN
+
+  printf 'Deleting OKE namespace %s and waiting for its Network Load Balancer cleanup...\n' \
+    "${namespace}"
+  ssh \
+    -i "${private_key}" \
+    -o StrictHostKeyChecking=accept-new \
+    -o UserKnownHostsFile="${temporary_known_hosts}" \
+    "opc@${bastion_ip}" \
+    "kubectl delete namespace '${namespace}' --ignore-not-found --wait=true --timeout=20m"
+  rm -f "${temporary_known_hosts}"
+  trap - RETURN
 }
 
 while (($#)); do
@@ -125,10 +164,12 @@ else
 fi
 
 if [[ "${auto_approve}" == "true" ]]; then
+  cleanup_oke
   terraform destroy -auto-approve
   exit 0
 fi
 
 read -r -p 'Type destroy to continue: ' confirmation
 [[ "${confirmation}" == "destroy" ]] || { printf 'Destroy cancelled.\n'; exit 1; }
+cleanup_oke
 terraform destroy

@@ -24,6 +24,8 @@
           - deployment_name | length > 0
           - region | length > 0
           - private_orthanc_endpoint | length > 0
+          - oke_cluster_id | length > 0
+          - oke_kubernetes_version | length > 0
           - postgres_host | length > 0
           - orthanc_password | length > 0
           - postgres_password | length > 0
@@ -80,6 +82,87 @@
         src: /opt/oci-dicom/venv/bin/oci
         dest: /usr/local/bin/oci
         state: link
+
+    - name: Install the instance-principal OCI CLI wrapper
+      ansible.builtin.copy:
+        dest: /usr/local/bin/oci-instance-principal
+        owner: root
+        group: root
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          exec /usr/local/bin/oci --auth instance_principal "$@"
+
+    - name: Install the Kubernetes client
+      ansible.builtin.get_url:
+        url: "https://dl.k8s.io/release/{{ oke_kubernetes_version }}/bin/linux/{{ bastion_kubectl_arch }}/kubectl"
+        dest: /usr/local/bin/kubectl
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Create the opc Kubernetes configuration directory
+      ansible.builtin.file:
+        path: /home/opc/.kube
+        state: directory
+        owner: opc
+        group: opc
+        mode: "0700"
+
+    - name: Create private OKE kubeconfig with the bastion instance principal
+      ansible.builtin.command:
+        argv:
+          - oci
+          - --auth
+          - instance_principal
+          - --region
+          - "{{ region }}"
+          - ce
+          - cluster
+          - create-kubeconfig
+          - --cluster-id
+          - "{{ oke_cluster_id }}"
+          - --file
+          - /home/opc/.kube/config
+          - --kube-endpoint
+          - PRIVATE_ENDPOINT
+          - --token-version
+          - "2.0.0"
+          - --overwrite
+      environment:
+        OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING: "True"
+      register: kubeconfig_result
+      changed_when: true
+      retries: 24
+      delay: 15
+      until: kubeconfig_result.rc == 0
+
+    - name: Protect the private OKE kubeconfig
+      ansible.builtin.file:
+        path: /home/opc/.kube/config
+        owner: opc
+        group: opc
+        mode: "0600"
+
+    - name: Force kubeconfig token generation to use the instance principal
+      ansible.builtin.replace:
+        path: /home/opc/.kube/config
+        regexp: '(^\s*command:\s+)(?:/usr/local/bin/)?oci\s*$'
+        replace: '\1/usr/local/bin/oci-instance-principal'
+      no_log: true
+
+    - name: Wait for private OKE API access
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - nodes
+      become_user: opc
+      register: oke_nodes
+      changed_when: false
+      retries: 30
+      delay: 20
+      until: oke_nodes.rc == 0
 
     - name: Store stack connection data
       ansible.builtin.template:
@@ -158,6 +241,7 @@
             sudo dicom-status    Test private Orthanc, DICOMweb, and PostgreSQL
             sudo dicom-env       Show non-secret stack endpoints
             sudo dicom-psql      Open the managed PostgreSQL database
+            kubectl get pods -A  Inspect the private OKE cluster
 
   handlers:
     - name: Reload sshd

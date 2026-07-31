@@ -87,23 +87,43 @@ certificate_file="$(mktemp "${TMPDIR:-/tmp}/oci-dicom-fastconnect-ca.XXXXXX")"
 trap 'rm -f "${certificate_file}"' EXIT
 terraform -chdir="${terraform_dir}" output -raw fastconnect_private_ingest_certificate >"${certificate_file}"
 
-basic_auth="$(
-  printf '%s:%s' "${username}" "${password}" |
-    base64 |
-    tr -d '\n'
+private_base="${endpoint%/orthanc}"
+token_json="$(
+  curl \
+    --fail \
+    --silent \
+    --show-error \
+    --retry 5 \
+    --retry-all-errors \
+    --connect-timeout 15 \
+    --max-time 180 \
+    --cacert "${certificate_file}" \
+    -X POST \
+    -H 'Content-Type: application/x-www-form-urlencoded' \
+    --data-urlencode 'client_id=orthanc' \
+    --data-urlencode 'grant_type=password' \
+    --data-urlencode "username=${username}" \
+    --data-urlencode "password=${password}" \
+    "${private_base}/keycloak/realms/orthanc/protocol/openid-connect/token"
 )"
+access_token="$(jq -r '.access_token // empty' <<<"${token_json}")"
+[[ -n "${access_token}" ]] || {
+  printf 'Unable to obtain an Orthanc OIDC token over FastConnect.\n' >&2
+  exit 1
+}
+
 private_curl() {
-  printf 'header = "Authorization: Basic %s"\n' "${basic_auth}" |
-    curl --config - \
-      --fail \
-      --silent \
-      --show-error \
-      --retry 5 \
-      --retry-all-errors \
-      --connect-timeout 15 \
-      --max-time 1800 \
-      --cacert "${certificate_file}" \
-      "$@"
+  curl \
+    --fail \
+    --silent \
+    --show-error \
+    --retry 5 \
+    --retry-all-errors \
+    --connect-timeout 15 \
+    --max-time 1800 \
+    --cacert "${certificate_file}" \
+    -H "Authorization: Bearer ${access_token}" \
+    "$@"
 }
 
 if ! system_json="$(private_curl "${endpoint}/system")"; then
