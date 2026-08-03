@@ -40,18 +40,97 @@ cleanup_oke() {
   done
 
   bastion_ip="$(terraform output -raw bastion_public_ip)"
-  namespace="$(terraform output -json deployment_summary | jq -r '.name')"
+  cluster_id="$(terraform output -raw oke_cluster_id)"
+  deployment_summary="$(terraform output -json deployment_summary)"
+  namespace="$(jq -r '.name' <<<"${deployment_summary}")"
+  region="$(jq -r '.region' <<<"${deployment_summary}")"
+
+  [[ "${cluster_id}" == ocid1.cluster.* ]] || {
+    printf 'Refusing OKE cleanup because the cluster OCID is invalid: %s\n' "${cluster_id}" >&2
+    exit 1
+  }
+  [[ "${namespace}" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]] || {
+    printf 'Refusing OKE cleanup because the namespace is invalid: %s\n' "${namespace}" >&2
+    exit 1
+  }
+  [[ "${region}" =~ ^[a-z]{2}-[a-z]+-[0-9]+$ ]] || {
+    printf 'Refusing OKE cleanup because the region is invalid: %s\n' "${region}" >&2
+    exit 1
+  }
+
   temporary_known_hosts="$(mktemp "${TMPDIR:-/tmp}/oci-dicom-known-hosts.XXXXXX")"
   trap 'rm -f "${temporary_known_hosts}"' RETURN
 
-  printf 'Deleting OKE namespace %s and waiting for its Network Load Balancer cleanup...\n' \
+  printf 'Preparing the private OKE kubeconfig and deleting namespace %s...\n' \
     "${namespace}"
   ssh \
     -i "${private_key}" \
     -o StrictHostKeyChecking=accept-new \
     -o UserKnownHostsFile="${temporary_known_hosts}" \
     "opc@${bastion_ip}" \
-    "/usr/local/bin/kubectl delete namespace '${namespace}' --ignore-not-found --wait=true --timeout=20m"
+    bash -s -- "${cluster_id}" "${region}" "${namespace}" <<'REMOTE'
+set -euo pipefail
+
+cluster_id="$1"
+region="$2"
+namespace="$3"
+oci_cli=/opt/oci-dicom/venv/bin/oci
+kubectl=/usr/local/bin/kubectl
+kubeconfig=/home/opc/.kube/config
+oci_wrapper=/home/opc/.kube/oci-instance-principal
+
+[[ -x "${oci_cli}" ]] || {
+  printf 'OCI CLI is missing on the bastion: %s\n' "${oci_cli}" >&2
+  exit 1
+}
+[[ -x "${kubectl}" ]] || {
+  printf 'kubectl is missing on the bastion: %s\n' "${kubectl}" >&2
+  exit 1
+}
+
+install -d -m 0700 /home/opc/.kube
+
+kubeconfig_created=false
+for attempt in $(seq 1 12); do
+  if "${oci_cli}" \
+    --auth instance_principal \
+    --region "${region}" \
+    ce cluster create-kubeconfig \
+    --cluster-id "${cluster_id}" \
+    --file "${kubeconfig}" \
+    --kube-endpoint PRIVATE_ENDPOINT \
+    --token-version 2.0.0 \
+    --overwrite; then
+    kubeconfig_created=true
+    break
+  fi
+  printf 'OKE kubeconfig creation attempt %d/12 failed; retrying in 10 seconds...\n' \
+    "${attempt}" >&2
+  sleep 10
+done
+
+[[ "${kubeconfig_created}" == true && -s "${kubeconfig}" ]] || {
+  printf 'Unable to create the private OKE kubeconfig with the bastion instance principal.\n' >&2
+  exit 1
+}
+
+printf '%s\n' \
+  '#!/usr/bin/env bash' \
+  'exec /opt/oci-dicom/venv/bin/oci --auth instance_principal "$@"' \
+  >"${oci_wrapper}"
+chmod 0700 "${oci_wrapper}"
+sed -E -i.bak \
+  "s#^([[:space:]]*command:[[:space:]]*)(/usr/local/bin/)?oci[[:space:]]*$#\\1${oci_wrapper}#" \
+  "${kubeconfig}"
+rm -f "${kubeconfig}.bak"
+chmod 0600 "${kubeconfig}"
+
+KUBECONFIG="${kubeconfig}" "${kubectl}" \
+  delete namespace "${namespace}" \
+  --ignore-not-found \
+  --wait=true \
+  --timeout=20m
+REMOTE
   rm -f "${temporary_known_hosts}"
   trap - RETURN
 }
