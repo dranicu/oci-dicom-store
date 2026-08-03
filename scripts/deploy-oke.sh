@@ -100,24 +100,24 @@ namespace="$2"
 expected_nlb_ip="$3"
 
 chmod 600 "${manifest_file}"
-kubectl apply -f "${manifest_file}"
+/usr/local/bin/kubectl apply -f "${manifest_file}"
 rm -f "${manifest_file}"
 
-kubectl -n "${namespace}" wait \
+/usr/local/bin/kubectl -n "${namespace}" wait \
   --for=condition=complete \
   job \
   --selector=app.kubernetes.io/name=keycloak-database-bootstrap \
   --timeout=15m
 
 for deployment in keycloak orthanc-auth-service orthanc dicom-gateway; do
-  kubectl -n "${namespace}" rollout status \
+  /usr/local/bin/kubectl -n "${namespace}" rollout status \
     "deployment/${deployment}" \
     --timeout=20m
 done
 
 for attempt in $(seq 1 60); do
   actual_nlb_ip="$(
-    kubectl -n "${namespace}" get service dicom-gateway \
+    /usr/local/bin/kubectl -n "${namespace}" get service dicom-gateway \
       -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true
   )"
   if [[ "${actual_nlb_ip}" == "${expected_nlb_ip}" ]]; then
@@ -131,7 +131,7 @@ for attempt in $(seq 1 60); do
   sleep 10
 done
 
-kubectl -n "${namespace}" describe service dicom-gateway >&2
+/usr/local/bin/kubectl -n "${namespace}" describe service dicom-gateway >&2
 printf 'OKE internal NLB did not acquire reserved IP %s within 10 minutes.\n' \
   "${expected_nlb_ip}" >&2
 exit 1

@@ -77,6 +77,14 @@
           - requests
         state: present
 
+    - name: Verify the OCI CLI installation
+      ansible.builtin.command:
+        argv:
+          - /opt/oci-dicom/venv/bin/oci
+          - --version
+      register: oci_cli_version
+      changed_when: false
+
     - name: Link OCI CLI into the system path
       ansible.builtin.file:
         src: /opt/oci-dicom/venv/bin/oci
@@ -91,7 +99,7 @@
         mode: "0755"
         content: |
           #!/usr/bin/env bash
-          exec /usr/local/bin/oci --auth instance_principal "$@"
+          exec /opt/oci-dicom/venv/bin/oci --auth instance_principal "$@"
 
     - name: Install the Kubernetes client
       ansible.builtin.get_url:
@@ -112,7 +120,7 @@
     - name: Create private OKE kubeconfig with the bastion instance principal
       ansible.builtin.command:
         argv:
-          - oci
+          - /opt/oci-dicom/venv/bin/oci
           - --auth
           - instance_principal
           - --region
@@ -154,10 +162,13 @@
     - name: Wait for private OKE API access
       ansible.builtin.command:
         argv:
-          - kubectl
+          - /usr/local/bin/kubectl
           - get
           - nodes
       become_user: opc
+      environment:
+        HOME: /home/opc
+        KUBECONFIG: /home/opc/.kube/config
       register: oke_nodes
       changed_when: false
       retries: 30

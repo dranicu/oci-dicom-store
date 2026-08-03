@@ -51,7 +51,7 @@ cleanup_oke() {
     -o StrictHostKeyChecking=accept-new \
     -o UserKnownHostsFile="${temporary_known_hosts}" \
     "opc@${bastion_ip}" \
-    "kubectl delete namespace '${namespace}' --ignore-not-found --wait=true --timeout=20m"
+    "/usr/local/bin/kubectl delete namespace '${namespace}' --ignore-not-found --wait=true --timeout=20m"
   rm -f "${temporary_known_hosts}"
   trap - RETURN
 }
