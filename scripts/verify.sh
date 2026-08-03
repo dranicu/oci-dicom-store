@@ -53,6 +53,7 @@ keycloak_endpoint="$(terraform -chdir="${terraform_dir}" output -raw keycloak_en
 
 uploaded_instance_id=""
 access_token=""
+sso_cookie_jar=""
 cleanup() {
   if [[ "${delete_after_upload}" == true && -n "${uploaded_instance_id}" ]]; then
     curl \
@@ -65,6 +66,9 @@ cleanup() {
       -X DELETE \
       "${api_endpoint}/instances/${uploaded_instance_id}" >/dev/null \
       || printf 'Warning: could not remove synthetic DICOM instance %s.\n' "${uploaded_instance_id}" >&2
+  fi
+  if [[ -n "${sso_cookie_jar}" ]]; then
+    rm -f "${sso_cookie_jar}"
   fi
 }
 trap cleanup EXIT
@@ -116,11 +120,13 @@ if [[ "$(jq -r '.enabled' <<<"${sso_json}")" == "true" ]]; then
     (.code_challenge_methods_supported | index("S256"))
   ' <<<"${discovery_json}" >/dev/null
 
+  sso_cookie_jar="$(mktemp "${TMPDIR:-/tmp}/oci-dicom-sso-cookies.XXXXXX")"
   sso_redirect="$(curl \
     --fail \
     --silent \
     --show-error \
     --get \
+    --cookie-jar "${sso_cookie_jar}" \
     --output /dev/null \
     --write-out '%{redirect_url}' \
     --data-urlencode 'client_id=orthanc' \
@@ -129,6 +135,17 @@ if [[ "$(jq -r '.enabled' <<<"${sso_json}")" == "true" ]]; then
     --data-urlencode 'scope=openid' \
     --data-urlencode 'kc_idp_hint=oci' \
     "${keycloak_endpoint}/realms/orthanc/protocol/openid-connect/auth")"
+  if [[ "${sso_redirect}" == "${keycloak_endpoint}/realms/orthanc/broker/oci/login"* ]]; then
+    sso_redirect="$(curl \
+      --fail \
+      --silent \
+      --show-error \
+      --cookie "${sso_cookie_jar}" \
+      --cookie-jar "${sso_cookie_jar}" \
+      --output /dev/null \
+      --write-out '%{redirect_url}' \
+      "${sso_redirect}")"
+  fi
   [[ "${sso_redirect}" == "${sso_domain_url}/oauth2/v1/authorize"* ]] || {
     printf 'Keycloak did not redirect to OCI IAM SSO. Redirect was: %s\n' \
       "${sso_redirect:-none}" >&2

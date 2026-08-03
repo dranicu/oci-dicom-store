@@ -133,6 +133,12 @@ resource "oci_core_private_ip" "orthanc_nlb" {
   display_name  = "${local.resource_name}-nlb"
   lifetime      = "RESERVED"
   freeform_tags = local.tags
+
+  lifecycle {
+    # OKE assigns the reserved address to the NLB VNIC. Detaching that
+    # service-managed association would interrupt the running gateway.
+    ignore_changes = [vnic_id]
+  }
 }
 
 resource "oci_core_subnet" "oke_api" {

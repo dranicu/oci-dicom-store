@@ -69,8 +69,7 @@ resource "oci_identity_domains_group" "orthanc_sso" {
   force_delete  = true
 
   urnietfparamsscimschemasoracleidcsextensiongroup_group {
-    creation_mechanism = "api"
-    description        = "Members receive the ${each.key} role in ${local.resource_name} Orthanc"
+    description = "Members receive the ${each.key} role in ${local.resource_name} Orthanc"
   }
 
   lifecycle {

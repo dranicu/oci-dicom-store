@@ -11,7 +11,7 @@ scripts/verify.sh
 From the management host, run the private-path checks:
 
 ```bash
-scripts/ssh-bastion.sh sudo dicom-status
+scripts/ssh-bastion.sh sudo /usr/local/sbin/dicom-status
 ```
 
 Then review:
@@ -47,9 +47,9 @@ scripts/configure-bastion.sh
 Useful commands on the host:
 
 ```bash
-sudo dicom-status
-sudo dicom-env
-sudo dicom-psql
+sudo /usr/local/sbin/dicom-status
+sudo /usr/local/sbin/dicom-env
+sudo /usr/local/sbin/dicom-psql
 sudo journalctl -u sshd
 kubectl get pods -A
 ```

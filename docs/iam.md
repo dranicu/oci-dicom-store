@@ -66,9 +66,13 @@ placed in the tenancy root.
 ## OKE operator and service identities
 
 Terraform creates a dynamic group whose matching rule contains only the
-deployed bastion instance OCID. Its compartment policy allows `use
-cluster-family` only for the deployed OKE cluster, enabling an
-instance-principal private kubeconfig without copying an API key to the host.
+deployed bastion instance OCID. Its compartment policy grants `CLUSTER_USE`
+and `CLUSTER_MANAGE` only for the deployed OKE cluster. `CLUSTER_USE` enables
+an instance-principal private kubeconfig without copying an API key to the
+host; `CLUSTER_MANAGE` authorizes the bastion through OKE's Kubernetes IAM
+authorizer to apply and remove the stack workloads. The latter is required in
+addition to kubeconfig creation: authentication alone does not grant
+Kubernetes API permissions.
 
 The OKE cluster principal receives compartment-scoped permission to create and
 delete its internal Network Load Balancer and use the VCN resources needed by

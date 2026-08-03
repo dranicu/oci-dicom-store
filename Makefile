@@ -118,7 +118,7 @@ deploy-oke: ## Apply or update the Orthanc, authorization-service, and Keycloak 
 
 bastion-status: ## Test private Orthanc, DICOMweb, and PostgreSQL from the bastion.
 	@test -f "$(PRIVATE_KEY)" || { printf 'Private SSH key not found: %s\n' "$(PRIVATE_KEY)" >&2; exit 1; }
-	./scripts/ssh-bastion.sh --private-key "$(PRIVATE_KEY)" sudo dicom-status
+	./scripts/ssh-bastion.sh --private-key "$(PRIVATE_KEY)" sudo /usr/local/sbin/dicom-status
 
 destroy: ## Plan and destroy the stack with confirmation.
 	BASTION_SSH_PRIVATE_KEY_FILE="$(PRIVATE_KEY)" ./scripts/destroy.sh

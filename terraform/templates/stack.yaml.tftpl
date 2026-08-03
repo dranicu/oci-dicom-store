@@ -76,7 +76,8 @@ metadata:
   labels:
     app.kubernetes.io/name: keycloak-database-bootstrap
 spec:
-  backoffLimit: 12
+  activeDeadlineSeconds: 900
+  backoffLimit: 6
   ttlSecondsAfterFinished: 86400
   template:
     metadata:
@@ -120,10 +121,9 @@ spec:
               SELECT format('CREATE ROLE keycloak LOGIN PASSWORD %L', :'keycloak_password')
               WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'keycloak') \gexec
               SELECT format('ALTER ROLE keycloak LOGIN PASSWORD %L', :'keycloak_password') \gexec
-              CREATE SCHEMA IF NOT EXISTS keycloak AUTHORIZATION keycloak;
-              ALTER SCHEMA keycloak OWNER TO keycloak;
+              CREATE SCHEMA IF NOT EXISTS keycloak;
               GRANT CONNECT ON DATABASE postgres TO keycloak;
-              GRANT ALL ON SCHEMA keycloak TO keycloak;
+              GRANT USAGE, CREATE ON SCHEMA keycloak TO keycloak;
               SQL
           resources:
             requests:
@@ -172,7 +172,12 @@ spec:
                   key: database-password
           command: ["/bin/sh", "-ec"]
           args:
-            - until psql -c 'select 1' >/dev/null 2>&1; do sleep 10; done
+            - |
+              until psql -tAc \
+                "SELECT 1 FROM information_schema.schemata WHERE schema_name = 'keycloak'" \
+                | grep -qx 1; do
+                sleep 10
+              done
       containers:
         - name: keycloak
           image: ${keycloak_image}
@@ -206,6 +211,8 @@ spec:
               value: "true"
             - name: KC_HTTP_RELATIVE_PATH
               value: /keycloak
+            - name: KC_HTTP_MANAGEMENT_RELATIVE_PATH
+              value: /
             - name: KC_HOSTNAME
               value: "${public_base_url}/keycloak"
             - name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC
@@ -250,7 +257,7 @@ spec:
       volumes:
         - name: realm
           secret:
-            name: keycloak-realm
+            secretName: keycloak-realm
 ---
 apiVersion: v1
 kind: Service
@@ -284,6 +291,17 @@ spec:
       annotations:
         oci-dicom.oracle.com/config-sha256: "${auth_service_config_hash}"
     spec:
+      initContainers:
+        - name: wait-for-keycloak
+          image: ${nginx_image}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              until wget -qO /dev/null \
+                http://keycloak:8080/keycloak/realms/orthanc/; do
+                sleep 5
+              done
       containers:
         - name: orthanc-auth-service
           image: ${orthanc_auth_service_image}

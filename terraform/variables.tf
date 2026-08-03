@@ -292,21 +292,36 @@ variable "fastconnect_is_transport_mode" {
 }
 
 variable "orthanc_image" {
-  description = "Pinned Orthanc Team image. Avoid floating latest tags."
+  description = "Fully qualified, pinned Orthanc Team image. Avoid floating latest tags."
   type        = string
-  default     = "orthancteam/orthanc:26.7.0"
+  default     = "docker.io/orthancteam/orthanc:26.7.0"
+
+  validation {
+    condition     = can(regex("^[^/]+\\.[^/]+/.+(:[^/]+|@sha256:[a-f0-9]{64})$", var.orthanc_image))
+    error_message = "orthanc_image must include a registry hostname and a tag or sha256 digest."
+  }
 }
 
 variable "orthanc_auth_service_image" {
-  description = "Pinned official Orthanc authorization-service image."
+  description = "Fully qualified, pinned official Orthanc authorization-service image."
   type        = string
-  default     = "orthancteam/orthanc-auth-service:26.4.0"
+  default     = "docker.io/orthancteam/orthanc-auth-service:26.4.0"
+
+  validation {
+    condition     = can(regex("^[^/]+\\.[^/]+/.+(:[^/]+|@sha256:[a-f0-9]{64})$", var.orthanc_auth_service_image))
+    error_message = "orthanc_auth_service_image must include a registry hostname and a tag or sha256 digest."
+  }
 }
 
 variable "keycloak_image" {
-  description = "Pinned upstream Keycloak image."
+  description = "Fully qualified, pinned upstream Keycloak image."
   type        = string
   default     = "quay.io/keycloak/keycloak:26.4.0"
+
+  validation {
+    condition     = can(regex("^[^/]+\\.[^/]+/.+(:[^/]+|@sha256:[a-f0-9]{64})$", var.keycloak_image))
+    error_message = "keycloak_image must include a registry hostname and a tag or sha256 digest."
+  }
 }
 
 variable "oci_identity_domain_sso" {
@@ -340,15 +355,25 @@ variable "oci_identity_domain_sso" {
 }
 
 variable "nginx_image" {
-  description = "Pinned reverse-proxy image used inside OKE."
+  description = "Fully qualified, pinned reverse-proxy image used inside OKE."
   type        = string
-  default     = "nginx:1.29.4-alpine"
+  default     = "docker.io/library/nginx:1.29.4-alpine"
+
+  validation {
+    condition     = can(regex("^[^/]+\\.[^/]+/.+(:[^/]+|@sha256:[a-f0-9]{64})$", var.nginx_image))
+    error_message = "nginx_image must include a registry hostname and a tag or sha256 digest."
+  }
 }
 
 variable "postgres_client_image" {
-  description = "Pinned PostgreSQL image used only by the idempotent Keycloak database bootstrap Job."
+  description = "Fully qualified, pinned PostgreSQL image used only by the idempotent Keycloak database bootstrap Job."
   type        = string
-  default     = "postgres:17.5-alpine"
+  default     = "docker.io/library/postgres:17.5-alpine"
+
+  validation {
+    condition     = can(regex("^[^/]+\\.[^/]+/.+(:[^/]+|@sha256:[a-f0-9]{64})$", var.postgres_client_image))
+    error_message = "postgres_client_image must include a registry hostname and a tag or sha256 digest."
+  }
 }
 
 variable "orthanc_replicas" {

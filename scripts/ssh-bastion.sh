@@ -17,4 +17,12 @@ fi
 }
 
 bastion_ip="$(terraform -chdir="${terraform_dir}" output -raw bastion_public_ip)"
-exec ssh -i "${private_key}" opc@"${bastion_ip}" "$@"
+known_hosts_file="$(mktemp "${TMPDIR:-/tmp}/oci-dicom-known-hosts.XXXXXX")"
+trap 'rm -f "${known_hosts_file}"' EXIT
+
+ssh \
+  -i "${private_key}" \
+  -o StrictHostKeyChecking=accept-new \
+  -o UserKnownHostsFile="${known_hosts_file}" \
+  opc@"${bastion_ip}" \
+  "$@"

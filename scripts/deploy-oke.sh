@@ -100,14 +100,49 @@ namespace="$2"
 expected_nlb_ip="$3"
 
 chmod 600 "${manifest_file}"
+bootstrap_job="$(awk '
+  $1 == "kind:" && $2 == "Job" { in_job = 1; next }
+  in_job && $1 == "name:" { print $2; exit }
+' "${manifest_file}")"
+[[ "${bootstrap_job}" =~ ^keycloak-database-bootstrap-[a-f0-9]{12}$ ]] || {
+  printf 'Unable to identify the Keycloak bootstrap Job in %s.\n' \
+    "${manifest_file}" >&2
+  exit 1
+}
+
+if /usr/local/bin/kubectl -n "${namespace}" get \
+  "job/${bootstrap_job}" >/dev/null 2>&1; then
+  bootstrap_complete="$(
+    /usr/local/bin/kubectl -n "${namespace}" get \
+      "job/${bootstrap_job}" \
+      --output=jsonpath='{.status.succeeded}'
+  )"
+  if [[ "${bootstrap_complete}" != "1" ]]; then
+    /usr/local/bin/kubectl -n "${namespace}" delete \
+      "job/${bootstrap_job}" \
+      --wait=true
+  fi
+fi
+
 /usr/local/bin/kubectl apply -f "${manifest_file}"
 rm -f "${manifest_file}"
 
 /usr/local/bin/kubectl -n "${namespace}" wait \
   --for=condition=complete \
-  job \
-  --selector=app.kubernetes.io/name=keycloak-database-bootstrap \
+  "job/${bootstrap_job}" \
   --timeout=15m
+
+while IFS= read -r stale_job; do
+  [[ "${stale_job}" == "job.batch/${bootstrap_job}" ]] && continue
+  /usr/local/bin/kubectl -n "${namespace}" delete \
+    "${stale_job}" \
+    --ignore-not-found \
+    --wait=false
+done < <(
+  /usr/local/bin/kubectl -n "${namespace}" get jobs \
+    --selector=app.kubernetes.io/name=keycloak-database-bootstrap \
+    --output=name
+)
 
 for deployment in keycloak orthanc-auth-service orthanc dicom-gateway; do
   /usr/local/bin/kubectl -n "${namespace}" rollout status \

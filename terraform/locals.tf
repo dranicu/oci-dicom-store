@@ -230,8 +230,11 @@ locals {
     }]
     users = [{
       username        = var.orthanc_username
+      firstName       = "Orthanc"
+      lastName        = "Administrator"
+      email           = "${var.orthanc_username}@local.invalid"
       enabled         = true
-      emailVerified   = false
+      emailVerified   = true
       realmRoles      = ["orthanc-admin"]
       requiredActions = []
       credentials = [{
@@ -305,6 +308,9 @@ locals {
       proxy_send_timeout 1200s;
       client_body_temp_path /tmp/client_temp;
       proxy_temp_path /tmp/proxy_temp;
+      fastcgi_temp_path /tmp/fastcgi_temp;
+      uwsgi_temp_path /tmp/uwsgi_temp;
+      scgi_temp_path /tmp/scgi_temp;
 
       server {
         listen 8080;
@@ -387,8 +393,12 @@ locals {
     enable_fastconnect          = var.enable_fastconnect
     private_ingest_cert_b64     = var.enable_fastconnect ? base64encode(tls_self_signed_cert.private_ingest[0].cert_pem) : ""
     private_ingest_key_b64      = var.enable_fastconnect ? base64encode(tls_private_key.private_ingest[0].private_key_pem) : ""
-    keycloak_bootstrap_id       = substr(sha256(local.keycloak_database_password), 0, 12)
-    orthanc_config_hash         = sha256(jsonencode(local.orthanc_configuration))
+    keycloak_bootstrap_id = substr(sha256(join(":", [
+      local.keycloak_database_password,
+      var.postgres_client_image,
+      "schema-v2",
+    ])), 0, 12)
+    orthanc_config_hash = sha256(jsonencode(local.orthanc_configuration))
     auth_service_config_hash = sha256(jsonencode({
       permissions = local.orthanc_role_permissions
       password    = local.auth_service_password

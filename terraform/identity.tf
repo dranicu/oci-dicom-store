@@ -95,7 +95,7 @@ resource "oci_identity_policy" "bastion_oke" {
   name           = "${local.resource_name}-bastion-oke"
   description    = "Allow the stack bastion to generate an instance-principal kubeconfig and operate its OKE cluster"
   statements = [
-    "Allow dynamic-group ${oci_identity_dynamic_group.bastion.name} to use cluster-family in compartment id ${var.compartment_id} where target.cluster.id = '${oci_containerengine_cluster.orthanc.id}'",
+    "Allow dynamic-group ${oci_identity_dynamic_group.bastion.name} to {CLUSTER_USE, CLUSTER_MANAGE} in compartment id ${var.compartment_id} where target.cluster.id = '${oci_containerengine_cluster.orthanc.id}'",
   ]
   freeform_tags = local.tags
 }

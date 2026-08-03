@@ -149,9 +149,9 @@ Connect after deployment and Ansible configuration:
 
 ```bash
 scripts/ssh-bastion.sh
-sudo dicom-status
-sudo dicom-env
-sudo dicom-psql
+sudo /usr/local/sbin/dicom-status
+sudo /usr/local/sbin/dicom-env
+sudo /usr/local/sbin/dicom-psql
 kubectl get pods -A
 ```
 

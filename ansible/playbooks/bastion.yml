@@ -159,7 +159,7 @@
         replace: '\1/usr/local/bin/oci-instance-principal'
       no_log: true
 
-    - name: Wait for private OKE API access
+    - name: Wait for private OKE administrator access
       ansible.builtin.command:
         argv:
           - /usr/local/bin/kubectl
@@ -249,9 +249,9 @@
         mode: "0644"
         content: |
           DICOM operator commands:
-            sudo dicom-status    Test private Orthanc, DICOMweb, and PostgreSQL
-            sudo dicom-env       Show non-secret stack endpoints
-            sudo dicom-psql      Open the managed PostgreSQL database
+            sudo /usr/local/sbin/dicom-status  Test private Orthanc, DICOMweb, and PostgreSQL
+            sudo /usr/local/sbin/dicom-env     Show non-secret stack endpoints
+            sudo /usr/local/sbin/dicom-psql    Open the managed PostgreSQL database
             kubectl get pods -A  Inspect the private OKE cluster
 
   handlers:

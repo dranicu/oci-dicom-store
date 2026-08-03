@@ -123,4 +123,4 @@ ANSIBLE_CONFIG="${project_dir}/ansible/ansible.cfg" \
 
 printf '\nBastion configured. Connect with:\n'
 printf 'ssh -i %q %q@%q\n' "${private_key}" "${ssh_user}" "${bastion_ip}"
-printf 'Then run: sudo dicom-status\n'
+printf 'Then run: sudo /usr/local/sbin/dicom-status\n'
