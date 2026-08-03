@@ -240,6 +240,49 @@ locals {
         temporary = false
       }]
     }]
+    identityProviders = local.oci_sso_enabled ? [{
+      alias                     = "oci"
+      displayName               = "OCI IAM SSO"
+      providerId                = "oidc"
+      enabled                   = true
+      trustEmail                = true
+      storeToken                = false
+      addReadTokenRoleOnCreate  = false
+      authenticateByDefault     = false
+      linkOnly                  = false
+      firstBrokerLoginFlowAlias = "first broker login"
+      config = {
+        authorizationUrl  = "${local.oci_sso_domain_url}/oauth2/v1/authorize"
+        tokenUrl          = "${local.oci_sso_domain_url}/oauth2/v1/token"
+        userInfoUrl       = "${local.oci_sso_domain_url}/oauth2/v1/userinfo"
+        logoutUrl         = "${local.oci_sso_domain_url}/oauth2/v1/userlogout"
+        jwksUrl           = "${local.oci_sso_domain_url}/admin/v1/SigningCert/jwk"
+        issuer            = local.oci_sso_issuer
+        clientId          = oci_identity_domains_app.orthanc_sso[0].name
+        clientSecret      = oci_identity_domains_app.orthanc_sso[0].client_secret
+        clientAuthMethod  = "client_secret_post"
+        defaultScope      = "openid profile email get_groups"
+        syncMode          = "FORCE"
+        validateSignature = "true"
+        useJwksUrl        = "true"
+        disableUserInfo   = "false"
+        pkceEnabled       = "true"
+        pkceMethod        = "S256"
+      }
+    }] : []
+    identityProviderMappers = local.oci_sso_enabled ? [
+      for role, group_name in local.oci_sso_roles : {
+        name                   = "OCI ${role}"
+        identityProviderAlias  = "oci"
+        identityProviderMapper = "oidc-role-idp-mapper"
+        config = {
+          claim         = "groups"
+          "claim.value" = group_name
+          role          = role
+          syncMode      = "FORCE"
+        }
+      }
+    ] : []
   }
 
   nginx_configuration = <<-NGINX

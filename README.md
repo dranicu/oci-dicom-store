@@ -5,6 +5,7 @@ Oracle's [cloud-native DICOM reference architecture](https://docs.oracle.com/en/
 
 - Orthanc DICOMweb and REST APIs on private OCI Kubernetes Engine (OKE)
 - Keycloak plus the official Orthanc authorization service
+- optional OCI IAM Identity Domains SSO for existing workforce accounts
 - viewer, uploader, editor, and administrator application roles
 - OCI Database with PostgreSQL for the Orthanc metadata index
 - private, versioned OCI Object Storage accessed through its S3-compatible API
@@ -29,6 +30,8 @@ can be inferred from the reference architecture.
 ```mermaid
 flowchart LR
   Client["Hospital / DICOMweb client"] -->|"HTTPS, ≤20 MB"| APIGW["Public API Gateway"]
+  User["Workforce user"] -->|"OCI IAM SSO / MFA"| OCIID["OCI IAM Identity Domain"]
+  OCIID -->|"OIDC + group claims"| KC
   Admin["Approved administrator"] -->|"SSH key"| Bastion["Operator bastion"]
   APIGW --> NLB["Private OCI NLB<br/>reserved IP"]
   Bastion --> OKE
@@ -60,7 +63,8 @@ matching the reference architecture's API Gateway flow.
 - sufficient OCI service limits for API Gateway, OKE enhanced clusters, Compute
   worker nodes, Network Load Balancer, and OCI Database with PostgreSQL
 - tenancy IAM privileges for the bastion dynamic group and OKE service policy,
-  plus user/group privileges if `create_storage_identity = true`
+  plus user/group privileges if `create_storage_identity = true`, and Identity
+  Domains application/group/grant privileges when OCI SSO is enabled
 
 Read [IAM prerequisites](docs/iam.md) before applying. The local `~/.oci/config`
 is read through the selected profile; key material is never copied into this
@@ -107,6 +111,8 @@ planning arguments with `TF_ARGS`, for example
    egress addresses. Never use `0.0.0.0/0` for production SSH.
    The deployment preflight queries OCI IAM and stops before apply if the
    storage identity email is already assigned.
+   To use existing OCI accounts for Orthanc, set `oci_identity_domain_sso` to
+   the domain OCID that owns those users. See [OCI IAM SSO](docs/sso.md).
 
 3. Validate and review a plan:
 
@@ -234,10 +240,14 @@ NLB public merely to bypass the limit.
   DNS, and outbound HTTPS.
 - Keycloak handles OIDC authentication; Orthanc delegates access decisions to
   the official authorization service.
+- When enabled, OCI IAM Identity Domains authenticates existing users and
+  Keycloak maps OCI role-group claims into Orthanc roles. No SSO user is
+  created by Terraform.
 - Realm roles map to `orthanc-viewer`, `orthanc-uploader`, `orthanc-editor`, and
   `orthanc-admin` permission profiles. The generated initial user is an admin.
-- Use `make get-credentials` for the initial user and Keycloak bootstrap admin,
-  then create named users and assign the minimum role in the Keycloak console.
+- Use `make get-credentials` for the break-glass user, Keycloak bootstrap
+  admin, OCI SSO URL, and generated role-group names. Assign existing users to
+  the minimum OCI IAM group required for their work.
 - API access and execution logs are enabled. Pass
   `alarm_notification_topic_id` to activate backend-health and API-5xx alarms.
 - DICOM and patient identifiers must not be placed in resource names, tags, or logs.

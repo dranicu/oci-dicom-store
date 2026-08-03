@@ -5,6 +5,19 @@ region         = "eu-frankfurt-1"
 home_region    = "eu-frankfurt-1"
 oci_profile    = "DEFAULT"
 
+# Optional OCI IAM Identity Domains SSO. Use the OCID of the identity domain
+# that owns the existing workforce users. Terraform creates a confidential
+# OIDC application plus four empty role groups; it does not create users.
+# oci_identity_domain_sso = {
+#   identity_domain_id = "ocid1.domain.oc1..replace_me"
+#   group_names = {
+#     orthanc-viewer   = "Orthanc-Viewers"
+#     orthanc-uploader = "Orthanc-Uploaders"
+#     orthanc-editor   = "Orthanc-Editors"
+#     orthanc-admin    = "Orthanc-Administrators"
+#   }
+# }
+
 # Restrict this to hospital, VPN, or corporate egress ranges.
 allowed_client_cidrs = [
   "203.0.113.10/32",

@@ -75,6 +75,18 @@ delete its internal Network Load Balancer and use the VCN resources needed by
 the cloud controller. These policies are required even when
 `create_storage_identity = false`.
 
+## OCI IAM Identity Domains SSO
+
+When `oci_identity_domain_sso` is set, the deploying principal also needs
+permission to manage applications, groups, and grants in that existing
+identity domain. The provider addresses Identity Domains through the domain's
+home-region URL; these resources are not compartment-local application
+resources even when the domain itself is assigned to a compartment.
+
+The stack creates no SSO users. Existing users are added to the generated role
+groups by an identity-domain administrator. See [OCI SSO](sso.md) for the
+group-to-Orthanc-role mapping and lifecycle behavior.
+
 ### Existing identity
 
 For a compartment-scoped deployment:

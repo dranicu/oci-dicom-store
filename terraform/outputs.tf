@@ -84,6 +84,20 @@ output "keycloak_admin_password" {
   sensitive   = true
 }
 
+output "oci_sso" {
+  description = "Non-secret OCI IAM Identity Domains SSO configuration and role-group mapping."
+  value = {
+    enabled             = local.oci_sso_enabled
+    identity_domain_id  = local.oci_sso_enabled ? data.oci_identity_domain.orthanc_sso[0].id : null
+    identity_domain_url = local.oci_sso_domain_url
+    discovery_url       = local.oci_sso_enabled ? "${local.oci_sso_domain_url}/.well-known/openid-configuration" : null
+    client_id           = local.oci_sso_enabled ? oci_identity_domains_app.orthanc_sso[0].name : null
+    callback_url        = local.oci_sso_callback_url
+    group_names         = local.oci_sso_roles
+    orthanc_login_url   = "${local.public_base_url}/orthanc/ui/app/"
+  }
+}
+
 output "s3_compatibility_endpoint" {
   description = "OCI Object Storage S3 compatibility endpoint used by Orthanc."
   value       = local.s3_compatibility_endpoint
@@ -130,6 +144,11 @@ output "resource_ocids" {
     postgres            = oci_psql_db_system.orthanc.id
     bucket              = oci_objectstorage_bucket.dicom.id
     log_group           = oci_logging_log_group.dicom.id
+    oci_sso_app         = local.oci_sso_enabled ? coalesce(oci_identity_domains_app.orthanc_sso[0].ocid, oci_identity_domains_app.orthanc_sso[0].id) : null
+    oci_sso_groups = {
+      for role, group in oci_identity_domains_group.orthanc_sso :
+      role => coalesce(group.ocid, group.id)
+    }
   }
 }
 
@@ -143,6 +162,9 @@ output "deployment_summary" {
     api_endpoint        = "https://${oci_apigateway_gateway.orthanc.hostname}/orthanc"
     dicomweb_endpoint   = "https://${oci_apigateway_gateway.orthanc.hostname}/orthanc/dicom-web"
     keycloak_endpoint   = "${local.public_base_url}/keycloak"
+    oci_sso_enabled     = local.oci_sso_enabled
+    oci_sso_domain      = local.oci_sso_domain_url
+    oci_sso_groups      = local.oci_sso_roles
     private_endpoint    = "http://${local.nlb_private_ip}:8080/orthanc"
     private_ingest_endpoint = var.enable_fastconnect ? (
       "https://${local.nlb_private_ip}:8443/orthanc"

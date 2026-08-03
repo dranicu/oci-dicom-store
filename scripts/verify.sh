@@ -94,6 +94,49 @@ access_token="$(jq -r '.access_token // empty' <<<"${token_json}")"
 }
 printf 'OK  Keycloak OIDC: %s\n' "${keycloak_endpoint}"
 
+sso_json="$(terraform -chdir="${terraform_dir}" output -json oci_sso)"
+if [[ "$(jq -r '.enabled' <<<"${sso_json}")" == "true" ]]; then
+  sso_discovery_url="$(jq -r '.discovery_url' <<<"${sso_json}")"
+  sso_domain_url="$(jq -r '.identity_domain_url' <<<"${sso_json}")"
+  discovery_json="$(curl \
+    --fail \
+    --silent \
+    --show-error \
+    --retry 5 \
+    --retry-all-errors \
+    --connect-timeout 15 \
+    --max-time 120 \
+    "${sso_discovery_url}")"
+  jq -e '
+    .issuer and
+    .authorization_endpoint and
+    .token_endpoint and
+    .userinfo_endpoint and
+    .jwks_uri and
+    (.code_challenge_methods_supported | index("S256"))
+  ' <<<"${discovery_json}" >/dev/null
+
+  sso_redirect="$(curl \
+    --fail \
+    --silent \
+    --show-error \
+    --get \
+    --output /dev/null \
+    --write-out '%{redirect_url}' \
+    --data-urlencode 'client_id=orthanc' \
+    --data-urlencode "redirect_uri=${api_endpoint}/ui/app/" \
+    --data-urlencode 'response_type=code' \
+    --data-urlencode 'scope=openid' \
+    --data-urlencode 'kc_idp_hint=oci' \
+    "${keycloak_endpoint}/realms/orthanc/protocol/openid-connect/auth")"
+  [[ "${sso_redirect}" == "${sso_domain_url}/oauth2/v1/authorize"* ]] || {
+    printf 'Keycloak did not redirect to OCI IAM SSO. Redirect was: %s\n' \
+      "${sso_redirect:-none}" >&2
+    exit 1
+  }
+  printf 'OK  OCI IAM Identity Domains SSO: %s\n' "${sso_domain_url}"
+fi
+
 curl_common=(
   --fail
   --silent

@@ -102,6 +102,11 @@ get-credentials: ## Display the Orthanc login credentials and Web UI endpoint.
 	@printf '\nKeycloak admin console: '
 	@terraform -chdir=terraform output -raw keycloak_endpoint
 	@printf '/admin/\n'
+	@terraform -chdir=terraform output -json oci_sso | jq -r '\
+		if .enabled then \
+		  "OCI IAM SSO: enabled\nOrthanc SSO sign-in: \(.orthanc_login_url)\nOCI role groups:\n" + \
+		  (.group_names | to_entries | sort_by(.key) | map("  \(.key): \(.value)") | join("\n")) \
+		else "OCI IAM SSO: disabled" end'
 
 configure-bastion: ## Apply the Ansible operator configuration to the bastion.
 	@test -f "$(PRIVATE_KEY)" || { printf 'Private SSH key not found: %s\n' "$(PRIVATE_KEY)" >&2; exit 1; }

@@ -309,6 +309,36 @@ variable "keycloak_image" {
   default     = "quay.io/keycloak/keycloak:26.4.0"
 }
 
+variable "oci_identity_domain_sso" {
+  description = "OCI IAM Identity Domains OIDC federation for Orthanc. Set to null to retain local Keycloak authentication only."
+  type = object({
+    identity_domain_id = string
+    group_names = optional(map(string), {
+      orthanc-viewer   = "Orthanc-Viewers"
+      orthanc-uploader = "Orthanc-Uploaders"
+      orthanc-editor   = "Orthanc-Editors"
+      orthanc-admin    = "Orthanc-Administrators"
+    })
+  })
+  default = null
+
+  validation {
+    condition = (
+      var.oci_identity_domain_sso == null ||
+      (
+        can(regex("^ocid1\\.domain\\.", var.oci_identity_domain_sso.identity_domain_id)) &&
+        toset(keys(var.oci_identity_domain_sso.group_names)) ==
+        toset(["orthanc-viewer", "orthanc-uploader", "orthanc-editor", "orthanc-admin"]) &&
+        alltrue([
+          for group_name in values(var.oci_identity_domain_sso.group_names) :
+          length(trimspace(group_name)) >= 3
+        ])
+      )
+    )
+    error_message = "oci_identity_domain_sso must use an identity-domain OCID and define non-empty group names for all four Orthanc roles."
+  }
+}
+
 variable "nginx_image" {
   description = "Pinned reverse-proxy image used inside OKE."
   type        = string
