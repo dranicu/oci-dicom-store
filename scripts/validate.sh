@@ -16,6 +16,10 @@ for json_file in "${project_dir}"/tests/fixtures/*.json; do
   jq -e . "${json_file}" >/dev/null
 done
 
+for test_script in "${project_dir}"/tests/*-test.sh; do
+  bash "${test_script}"
+done
+
 if command -v ansible-playbook >/dev/null 2>&1; then
   ANSIBLE_CONFIG="${project_dir}/ansible/ansible.cfg" \
     ansible-playbook \

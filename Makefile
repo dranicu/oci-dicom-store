@@ -121,13 +121,13 @@ bastion-status: ## Test private Orthanc, DICOMweb, and PostgreSQL from the basti
 	./scripts/ssh-bastion.sh --private-key "$(PRIVATE_KEY)" sudo /usr/local/sbin/dicom-status
 
 destroy: ## Plan and destroy the stack with confirmation.
-	BASTION_SSH_PRIVATE_KEY_FILE="$(PRIVATE_KEY)" ./scripts/destroy.sh
+	./scripts/destroy.sh
 
 destroy-auto: ## Destroy the stack without confirmation.
-	BASTION_SSH_PRIVATE_KEY_FILE="$(PRIVATE_KEY)" ./scripts/destroy.sh --auto-approve
+	./scripts/destroy.sh --auto-approve
 
 destroy-purge: ## Permanently purge the Object Storage bucket and destroy the stack.
-	BASTION_SSH_PRIVATE_KEY_FILE="$(PRIVATE_KEY)" ./scripts/destroy.sh --purge-bucket
+	./scripts/destroy.sh --purge-bucket
 
 destroy-purge-auto: ## Permanently purge and destroy without confirmation.
-	BASTION_SSH_PRIVATE_KEY_FILE="$(PRIVATE_KEY)" ./scripts/destroy.sh --purge-bucket --auto-approve
+	./scripts/destroy.sh --purge-bucket --auto-approve

@@ -308,9 +308,9 @@ then permanently removes the bucket, all current and versioned objects,
 pre-authenticated requests, replication policies, and uncommitted multipart
 uploads before destroying the rest of the stack. The non-interactive
 `make destroy-purge-auto` target is intended only for controlled automation.
-Before either destroy path runs Terraform, the script deletes the OKE namespace
-and waits for Kubernetes to remove its NLB, preventing an unmanaged NLB from
-blocking VCN/subnet deletion.
+The destroy path does not require SSH access to the bastion or perform a
+separate Kubernetes namespace deletion; Terraform tears down the OKE cluster
+and the remaining infrastructure.
 
 ## Reference implementation notes
 

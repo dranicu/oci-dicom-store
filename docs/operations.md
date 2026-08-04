@@ -167,10 +167,9 @@ restrict calling AEs and network sources.
 
 1. Stop new ingest and record the approved retention disposition.
 2. Export and verify required studies and audit evidence.
-3. Ensure the matching bastion private key is available at `PRIVATE_KEY`, then
-   run `make destroy`. The script removes the Kubernetes namespace and waits
-   for its NLB to be deleted. If the bucket is non-empty, destroy fails by design
-   and leaves the DICOM data intact.
+3. Run `make destroy`. No bastion SSH key or separate Kubernetes namespace
+   cleanup is required. If the bucket is non-empty, destroy fails by design and
+   leaves the DICOM data intact.
 4. If retention requires preserving the data, do not bypass that failure.
 5. If an authorized data custodian has approved permanent deletion, run
    `make destroy-purge`. The script displays the managed bucket and requires
