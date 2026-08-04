@@ -91,6 +91,13 @@ resource "oci_containerengine_node_pool" "orthanc" {
     value = "orthanc"
   }
 
+  node_eviction_node_pool_settings {
+    # A full stack destroy must not remain blocked indefinitely by a
+    # PodDisruptionBudget or a pod that cannot complete graceful eviction.
+    eviction_grace_duration              = "PT5M"
+    is_force_delete_after_grace_duration = true
+  }
+
   lifecycle {
     precondition {
       condition     = local.oke_node_image_id != ""

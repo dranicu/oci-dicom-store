@@ -16,6 +16,11 @@ set -euo pipefail
 printf 'terraform' >>"${DESTROY_TEST_COMMAND_LOG}"
 printf ' %q' "$@" >>"${DESTROY_TEST_COMMAND_LOG}"
 printf '\n' >>"${DESTROY_TEST_COMMAND_LOG}"
+if [[ "$1" == "show" ]]; then
+  cat <<'JSON'
+{"variables":{"oci_auth":{"value":"APIKey"},"oci_profile":{"value":"DEFAULT"},"region":{"value":"eu-frankfurt-1"}},"resource_changes":[]}
+JSON
+fi
 STUB
 
 cat >"${temporary_dir}/bin/ssh" <<'STUB'
@@ -26,7 +31,7 @@ STUB
 
 cat >"${temporary_dir}/bin/oci" <<'STUB'
 #!/usr/bin/env bash
-printf 'OCI CLI must not be called without --purge-bucket\n' >&2
+printf 'OCI CLI must not be called when no OCI pre-cleanup resource exists\n' >&2
 exit 98
 STUB
 
@@ -38,12 +43,12 @@ PATH="${temporary_dir}/bin:${PATH}" \
   BASTION_SSH_PRIVATE_KEY_FILE=/does/not/exist \
   "${project_dir}/scripts/destroy.sh" --auto-approve
 
-expected_commands=$'terraform init\nterraform plan -destroy\nterraform destroy -auto-approve'
+expected_commands_pattern=$'terraform init\nterraform plan -destroy -out=*\nterraform show -json *\nterraform destroy -auto-approve'
 actual_commands="$(<"${command_log}")"
 
-[[ "${actual_commands}" == "${expected_commands}" ]] || {
+[[ "${actual_commands}" == ${expected_commands_pattern} ]] || {
   printf 'Unexpected destroy command sequence:\n%s\n' "${actual_commands}" >&2
   exit 1
 }
 
-printf 'Destroy path is independent of bastion SSH and OCI CLI cleanup.\n'
+printf 'Destroy path is independent of bastion SSH and skips OCI cleanup when unnecessary.\n'

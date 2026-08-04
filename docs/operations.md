@@ -168,8 +168,10 @@ restrict calling AEs and network sources.
 1. Stop new ingest and record the approved retention disposition.
 2. Export and verify required studies and audit evidence.
 3. Run `make destroy`. No bastion SSH key or separate Kubernetes namespace
-   cleanup is required. If the bucket is non-empty, destroy fails by design and
-   leaves the DICOM data intact.
+   cleanup is required. The workflow destroys OKE first, deletes its exact
+   Kubernetes-managed NLB, and deactivates the OCI SSO application before the
+   final Terraform destroy. If the bucket is non-empty, destroy fails by design
+   and leaves the DICOM data intact.
 4. If retention requires preserving the data, do not bypass that failure.
 5. If an authorized data custodian has approved permanent deletion, run
    `make destroy-purge`. The script displays the managed bucket and requires

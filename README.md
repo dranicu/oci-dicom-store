@@ -309,8 +309,10 @@ pre-authenticated requests, replication policies, and uncommitted multipart
 uploads before destroying the rest of the stack. The non-interactive
 `make destroy-purge-auto` target is intended only for controlled automation.
 The destroy path does not require SSH access to the bastion or perform a
-separate Kubernetes namespace deletion; Terraform tears down the OKE cluster
-and the remaining infrastructure.
+separate Kubernetes namespace deletion. It first tears down OKE, then removes
+the exact Kubernetes-managed NLB that owns the reserved gateway address before
+Terraform deletes the remaining network. It also deactivates the OCI Identity
+Domains application because that API refuses to delete an active application.
 
 ## Reference implementation notes
 
