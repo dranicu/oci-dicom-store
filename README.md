@@ -6,7 +6,8 @@ Oracle's [cloud-native DICOM reference architecture](https://docs.oracle.com/en/
 - Orthanc DICOMweb and REST APIs on private OCI Kubernetes Engine (OKE)
 - Keycloak plus the official Orthanc authorization service
 - optional OCI IAM Identity Domains SSO for existing workforce accounts
-- viewer, uploader, editor, and administrator application roles
+- platform-wide roles plus study-label-enforced viewer, uploader, editor, and
+  administrator roles for every configured tenant
 - OCI Database with PostgreSQL for the Orthanc metadata index
 - private, versioned OCI Object Storage accessed through its S3-compatible API
 - an OKE-managed private Network Load Balancer with a reserved private address
@@ -86,6 +87,9 @@ make plan
 make apply
 make get-credentials
 make verify
+make verify-compliance
+make failure-test
+make restore-drill
 make destroy
 ```
 
@@ -113,6 +117,9 @@ planning arguments with `TF_ARGS`, for example
    storage identity email is already assigned.
    To use existing OCI accounts for Orthanc, set `oci_identity_domain_sso` to
    the domain OCID that owns those users. See [OCI IAM SSO](docs/sso.md).
+   Replace the example `orthanc_tenants` map with the approved tenant catalog.
+   Labels are security identifiers and must remain stable after studies are
+   classified. Enable `enable_tenant_test_users` only for acceptance testing.
 
 3. Validate and review a plan:
 
@@ -209,6 +216,49 @@ DICOM files contain no patient data. Samples uploaded with `make verify-dicom`
 remain in Orthanc until deleted from the Web UI; `make verify-dicom-clean`
 removes its sample automatically.
 
+Run the complete synthetic acceptance suite while
+`enable_tenant_test_users = true`:
+
+```bash
+make verify-compliance
+make failure-test PRIVATE_KEY=~/.ssh/id_rsa
+make restore-drill PRIVATE_KEY=~/.ssh/id_rsa
+```
+
+`verify-compliance` proves STOW-RS, QIDO-RS, WADO-RS, unlabeled quarantine,
+positive tenant access, cross-tenant denial, PostgreSQL-backed Orthanc audit
+events, private/versioned Object Storage use, encryption-key mode, regional
+database durability, and the backup policy. `failure-test` removes one Orthanc
+pod and proves QIDO-RS remains available while Kubernetes replaces it.
+`restore-drill` is a long-running and temporarily billable test: it creates a
+manual managed-PostgreSQL backup, provisions a one-node database from that
+backup, validates restored application tables through the bastion, and removes
+both drill resources even on failure.
+
+All repository-generated test objects use `SYNTHETIC-*` identifiers and contain
+no patient data. Never run these targets with production DICOM input.
+
+## Tenant authorization and quarantine
+
+Each configured tenant has four Keycloak realm roles and, when OCI SSO is
+enabled, four matching OCI Identity Domains groups. The official Orthanc
+authorization service returns a single tenant label as `authorized-labels`.
+Orthanc's authorization plugin enforces that label at study level for REST and
+DICOMweb access. Platform-wide roles are privileged cross-tenant roles;
+`orthanc-admin` is the trusted classifier and break-glass account.
+
+Uploads deliberately enter an unlabeled quarantine. An uploader-controlled
+DICOM tag is not accepted as an authorization decision. A trusted workflow
+must assign exactly one configured label:
+
+```bash
+make classify-study TENANT=hospital-a STUDY_UID=2.25.1234
+```
+
+The classifier removes any other configured tenant label before applying the
+selected one and verifies the one-label invariant. Until that succeeds, tenant
+users cannot discover or retrieve the study.
+
 ## Important 20 MB API Gateway limit
 
 OCI API Gateway has a fixed
@@ -243,8 +293,9 @@ NLB public merely to bypass the limit.
 - When enabled, OCI IAM Identity Domains authenticates existing users and
   Keycloak maps OCI role-group claims into Orthanc roles. No SSO user is
   created by Terraform.
-- Realm roles map to `orthanc-viewer`, `orthanc-uploader`, `orthanc-editor`, and
-  `orthanc-admin` permission profiles. The generated initial user is an admin.
+- Realm roles include privileged platform-wide profiles and tenant-specific
+  profiles whose study access is restricted by Orthanc labels. The generated
+  initial user is the global break-glass administrator.
 - Use `make get-credentials` for the break-glass user, Keycloak bootstrap
   admin, OCI SSO URL, and generated role-group names. Assign existing users to
   the minimum OCI IAM group required for their work.
@@ -283,6 +334,12 @@ If the deployment principal cannot manage tenancy IAM, set
 pair through sensitive Resource Manager variables or `TF_VAR_*` environment
 variables. Do not commit them to `terraform/terraform.tfvars`.
 
+The storage choice, alternatives, consistency boundary, and recovery
+implications are recorded in
+[the storage-plugin assessment](docs/storage-plugin-assessment.md). The public
+edge choice and OCI WAF limitation are recorded in
+[the edge-security assessment](docs/edge-security.md).
+
 ## Operations
 
 See [operations.md](docs/operations.md) for scaling, credential rotation,
@@ -309,10 +366,12 @@ pre-authenticated requests, replication policies, and uncommitted multipart
 uploads before destroying the rest of the stack. The non-interactive
 `make destroy-purge-auto` target is intended only for controlled automation.
 The destroy path does not require SSH access to the bastion or perform a
-separate Kubernetes namespace deletion. It first tears down OKE, then removes
-the exact Kubernetes-managed NLB that owns the reserved gateway address before
-Terraform deletes the remaining network. It also deactivates the OCI Identity
-Domains application because that API refuses to delete an active application.
+separate Kubernetes namespace deletion. It revokes OCI Identity Domains grants
+while their application is active, then deactivates the application because
+OCI refuses both grant revocation from an inactive app and deletion of an
+active app. It next tears down OKE, removes the exact Kubernetes-managed NLB
+that owns the reserved gateway address, and lets Terraform delete the remaining
+resources. This ordering is retry-safe after a partially completed destroy.
 
 ## Reference implementation notes
 

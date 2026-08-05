@@ -306,6 +306,13 @@ spec:
         - name: orthanc-auth-service
           image: ${orthanc_auth_service_image}
           imagePullPolicy: IfNotPresent
+          command: ["python3", "-c"]
+          args:
+            - |
+              import logging
+              import uvicorn
+              logging.basicConfig(level=logging.WARNING)
+              uvicorn.run("app:app", host="0.0.0.0", port=8000, log_level="warning")
           env:
             - name: ENABLE_KEYCLOAK
               value: "true"

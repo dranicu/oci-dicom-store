@@ -4,10 +4,14 @@ SHELL := /usr/bin/env bash
 TF_ARGS ?=
 DICOM_FILE ?=
 PRIVATE_KEY ?= $(HOME)/.ssh/id_rsa
+TENANT ?=
+STUDY_UID ?=
+STUDY_ID ?=
 
 .PHONY: \
 	help init fmt validate plan show-plan apply apply-auto outputs show-output verify \
-	verify-dicom verify-dicom-clean get-credentials configure-bastion \
+	verify-dicom verify-dicom-clean verify-compliance classify-study failure-test \
+	restore-drill restore-drill-auto get-credentials configure-bastion \
 	deploy-oke bastion-status destroy destroy-auto destroy-purge destroy-purge-auto
 
 help: ## Show the available deployment commands.
@@ -20,6 +24,10 @@ help: ## Show the available deployment commands.
 		'  make apply                Plan and apply interactively' \
 		'  make apply-auto           Plan and apply without confirmation' \
 		'  make verify               Test Orthanc REST and DICOMweb' \
+		'  make verify-compliance    Prove STOW/QIDO/WADO, tenant isolation, audit, storage, and backup policy' \
+		'  make failure-test         Delete one Orthanc pod and prove uninterrupted recovery' \
+		'  make restore-drill        Create a backup, restore/validate it, then remove drill resources' \
+		'  make classify-study TENANT=tenant-a STUDY_UID=...  Assign the trusted tenant label' \
 		'  make verify-dicom       Upload a synthetic DICOM and keep it visible in Orthanc' \
 		'  make verify-dicom-clean Upload, verify, and remove a synthetic DICOM' \
 		'  make verify-dicom DICOM_FILE=/absolute/test.dcm  Test a supplied DICOM instead' \
@@ -86,7 +94,33 @@ verify-dicom-clean: ## Upload, verify, and remove one synthetic DICOM instance.
 	test_dicom="$$(mktemp "$${TMPDIR:-/tmp}/oci-dicom-test.XXXXXX")"; \
 	trap 'rm -f "$${test_dicom}"' EXIT; \
 	./scripts/generate-test-dicom.py "$${test_dicom}"; \
-	./scripts/verify.sh --dicom "$${test_dicom}" --delete-after-upload
+		./scripts/verify.sh --dicom "$${test_dicom}" --delete-after-upload
+
+verify-compliance: ## Run the synthetic DICOMweb, tenant-isolation, audit, encryption, and backup-policy test.
+	./scripts/verify-compliance.sh
+
+classify-study: ## Assign one configured tenant label to a study as the trusted administrator.
+	@test -n "$(TENANT)" || { printf '%s\n' 'Set TENANT to a configured tenant key.' >&2; exit 2; }
+	@set -euo pipefail; \
+	if [[ -n "$(STUDY_UID)" && -z "$(STUDY_ID)" ]]; then \
+		./scripts/classify-study.sh --tenant "$(TENANT)" --study-uid "$(STUDY_UID)"; \
+	elif [[ -n "$(STUDY_ID)" && -z "$(STUDY_UID)" ]]; then \
+		./scripts/classify-study.sh --tenant "$(TENANT)" --study-id "$(STUDY_ID)"; \
+	else \
+		printf '%s\n' 'Set exactly one of STUDY_UID or STUDY_ID.' >&2; exit 2; \
+	fi
+
+failure-test: ## Delete one Orthanc pod and prove the redundant deployment remains available.
+	@test -f "$(PRIVATE_KEY)" || { printf 'Private SSH key not found: %s\n' "$(PRIVATE_KEY)" >&2; exit 1; }
+	./scripts/failure-test.sh --private-key "$(PRIVATE_KEY)"
+
+restore-drill: ## Create/restore/validate/delete an OCI PostgreSQL backup (billable and long-running).
+	@test -f "$(PRIVATE_KEY)" || { printf 'Private SSH key not found: %s\n' "$(PRIVATE_KEY)" >&2; exit 1; }
+	./scripts/restore-drill.sh --private-key "$(PRIVATE_KEY)"
+
+restore-drill-auto: ## Run the billable restore drill without confirmation.
+	@test -f "$(PRIVATE_KEY)" || { printf 'Private SSH key not found: %s\n' "$(PRIVATE_KEY)" >&2; exit 1; }
+	./scripts/restore-drill.sh --private-key "$(PRIVATE_KEY)" --auto-approve
 
 get-credentials: ## Display the Orthanc login credentials and Web UI endpoint.
 	@printf 'Orthanc user (orthanc-admin role): '
@@ -107,6 +141,14 @@ get-credentials: ## Display the Orthanc login credentials and Web UI endpoint.
 		  "OCI IAM SSO: enabled\nOrthanc SSO sign-in: \(.orthanc_login_url)\nOCI role groups:\n" + \
 		  (.group_names | to_entries | sort_by(.key) | map("  \(.key): \(.value)") | join("\n")) \
 		else "OCI IAM SSO: disabled" end'
+	@terraform -chdir=terraform output -json tenant_authorization | jq -r '\
+		"Tenant authorization:\n" + \
+		(.tenants | to_entries | sort_by(.key) | map("  \(.key): label=\(.value.label), groups=" + ((.value.sso_groups // {}) | values | join(", "))) | join("\n"))'
+	@terraform -chdir=terraform output -json tenant_test_credentials | jq -r '\
+		if length > 0 then \
+		  "Synthetic acceptance users (disable after testing):\n" + \
+		  (to_entries | sort_by(.key) | map("  \(.key): \(.value.username) / \(.value.password)") | join("\n")) \
+		else "Synthetic acceptance users: disabled" end'
 
 configure-bastion: ## Apply the Ansible operator configuration to the bastion.
 	@test -f "$(PRIVATE_KEY)" || { printf 'Private SSH key not found: %s\n' "$(PRIVATE_KEY)" >&2; exit 1; }

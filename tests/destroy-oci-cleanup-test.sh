@@ -7,6 +7,8 @@ trap 'rm -rf "${temporary_dir}"' EXIT
 
 command_log="${temporary_dir}/commands.log"
 export DESTROY_TEST_COMMAND_LOG="${command_log}"
+export DESTROY_TEST_SSO_STATE="${temporary_dir}/sso-state"
+printf 'false\n' >"${DESTROY_TEST_SSO_STATE}"
 mkdir -p "${temporary_dir}/bin"
 
 cat >"${temporary_dir}/bin/terraform" <<'STUB'
@@ -45,6 +47,7 @@ if [[ "$1" == "show" ]]; then
     },
     {
       "address": "oci_identity_domains_app.orthanc_sso[0]",
+      "type": "oci_identity_domains_app",
       "change": {
         "actions": ["delete"],
         "before": {
@@ -52,6 +55,11 @@ if [[ "$1" == "show" ]]; then
           "idcs_endpoint": "https://identity.example.test"
         }
       }
+    },
+    {
+      "address": "oci_identity_domains_grant.orthanc_sso[\"orthanc-admin\"]",
+      "type": "oci_identity_domains_grant",
+      "change": {"actions": ["delete"], "before": {"id": "test-grant-id"}}
     }
   ]
 }
@@ -68,7 +76,13 @@ printf '\n' >>"${DESTROY_TEST_COMMAND_LOG}"
 
 case " $* " in
   *" identity-domains app get "*)
-    printf '%s\n' '{"data":{"active":true}}'
+    printf '{"data":{"active":%s}}\n' "$(<"${DESTROY_TEST_SSO_STATE}")"
+    ;;
+  *" identity-domains app patch "*)
+    case "$*" in
+      *'"value":false'*) printf 'false\n' >"${DESTROY_TEST_SSO_STATE}" ;;
+      *'"value":true'*) printf 'true\n' >"${DESTROY_TEST_SSO_STATE}" ;;
+    esac
     ;;
   *" nlb network-load-balancer list "*)
     printf '%s\n' '{"data":{"items":[{"id":"ocid1.nlb.test","ip-addresses":[{"ip-address":"10.42.10.10","reserved-ip":{"id":"ocid1.privateip.test"}}]}]}}'
@@ -91,12 +105,13 @@ PATH="${temporary_dir}/bin:${PATH}" \
   "${project_dir}/scripts/destroy.sh" --auto-approve
 
 grep -Fq 'identity-domains app get --app-id test-app-id' "${command_log}"
-grep -Fq 'identity-domains app patch --app-id test-app-id' "${command_log}"
+[[ "$(grep -Fc 'identity-domains app patch --app-id test-app-id' "${command_log}")" == "2" ]]
+grep -Fq -- '-target=oci_identity_domains_grant.orthanc_sso' "${command_log}"
 grep -Fq -- '-target=oci_containerengine_node_pool.orthanc' "${command_log}"
 grep -Fq -- '-target=oci_containerengine_cluster.orthanc' "${command_log}"
 grep -Fq 'nlb network-load-balancer list' "${command_log}"
 grep -Fq 'nlb network-load-balancer delete --network-load-balancer-id ocid1.nlb.test' "${command_log}"
 
-[[ "$(grep -Fc 'terraform destroy -auto-approve' "${command_log}")" == "2" ]]
+[[ "$(grep -Fc 'terraform destroy -auto-approve' "${command_log}")" == "3" ]]
 
-printf 'Destroy cleanup deactivates SSO and removes the exact OKE-managed NLB.\n'
+printf 'Destroy cleanup revokes SSO grants before deactivation and removes the exact OKE-managed NLB.\n'

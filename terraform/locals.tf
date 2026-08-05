@@ -16,6 +16,31 @@ locals {
   auth_service_password      = random_password.auth_service.result
   auth_service_secret        = random_password.auth_service_secret.result
 
+  tenant_labels = {
+    for tenant_key, tenant in var.orthanc_tenants :
+    tenant_key => coalesce(tenant.label, "tenant-${tenant_key}")
+  }
+  tenant_role_names = flatten([
+    for tenant_key, tenant in var.orthanc_tenants : [
+      for permission in ["viewer", "uploader", "editor", "admin"] :
+      "tenant-${tenant_key}-${permission}"
+    ]
+  ])
+  tenant_sso_roles = merge([
+    for tenant_key, tenant in var.orthanc_tenants : {
+      for permission in ["viewer", "uploader", "editor", "admin"] :
+      "tenant-${tenant_key}-${permission}" => "${tenant.display_name} - Orthanc ${title(permission)}s"
+    }
+  ]...)
+  tenant_test_users = var.enable_tenant_test_users ? {
+    for tenant_key, tenant in var.orthanc_tenants : tenant_key => {
+      username = "synthetic-${tenant_key}"
+      password = random_password.tenant_test_user[tenant_key].result
+      role     = "tenant-${tenant_key}-editor"
+      label    = local.tenant_labels[tenant_key]
+    }
+  } : {}
+
   public_base_url            = "https://${oci_apigateway_gateway.orthanc.hostname}"
   s3_compatibility_endpoint  = "https://${data.oci_objectstorage_namespace.this.namespace}.compat.objectstorage.${var.region}.oci.customer-oci.com"
   nlb_private_ip             = oci_core_private_ip.orthanc_nlb.ip_address
@@ -98,6 +123,7 @@ locals {
       ]
       TokenHttpHeaders = ["Authorization"]
       CheckedLevel     = "studies"
+      EnableAuditLogs  = true
     }
 
     PostgreSQL = {
@@ -133,7 +159,7 @@ locals {
   }
 
   orthanc_role_permissions = {
-    roles = {
+    roles = merge({
       "orthanc-viewer" = {
         "authorized-labels" = ["*"]
         permissions         = ["view", "download"]
@@ -175,26 +201,70 @@ locals {
           "upload",
         ]
       }
-    }
-    "available-labels" = []
+      }, merge([
+        for tenant_key, tenant in var.orthanc_tenants : {
+          "tenant-${tenant_key}-viewer" = {
+            "authorized-labels" = [local.tenant_labels[tenant_key]]
+            permissions         = ["view", "download"]
+          }
+          "tenant-${tenant_key}-uploader" = {
+            "authorized-labels" = [local.tenant_labels[tenant_key]]
+            permissions         = ["view", "download", "upload"]
+          }
+          "tenant-${tenant_key}-editor" = {
+            "authorized-labels" = [local.tenant_labels[tenant_key]]
+            permissions = [
+              "view",
+              "download",
+              "upload",
+              "modify",
+              "anonymize",
+              "delete",
+              "send",
+            ]
+          }
+          "tenant-${tenant_key}-admin" = {
+            "authorized-labels" = [local.tenant_labels[tenant_key]]
+            permissions = [
+              "view",
+              "download",
+              "upload",
+              "modify",
+              "anonymize",
+              "delete",
+              "send",
+              "audit-logs",
+            ]
+          }
+        }
+    ]...))
+    "available-labels" = values(local.tenant_labels)
   }
 
   keycloak_realm = {
-    realm                  = "orthanc"
-    displayName            = "Orthanc"
-    enabled                = true
-    sslRequired            = "external"
-    registrationAllowed    = false
-    resetPasswordAllowed   = true
-    loginWithEmailAllowed  = true
-    duplicateEmailsAllowed = false
-    bruteForceProtected    = true
-    accessTokenLifespan    = 300
-    ssoSessionIdleTimeout  = 1800
-    ssoSessionMaxLifespan  = 36000
+    realm                     = "orthanc"
+    displayName               = "Orthanc"
+    enabled                   = true
+    sslRequired               = "external"
+    registrationAllowed       = false
+    resetPasswordAllowed      = true
+    loginWithEmailAllowed     = true
+    duplicateEmailsAllowed    = false
+    bruteForceProtected       = true
+    eventsEnabled             = true
+    eventsExpiration          = 2592000
+    enabledEventTypes         = ["LOGIN", "LOGIN_ERROR", "LOGOUT", "CODE_TO_TOKEN", "REFRESH_TOKEN", "REFRESH_TOKEN_ERROR"]
+    adminEventsEnabled        = true
+    adminEventsDetailsEnabled = true
+    accessTokenLifespan       = 300
+    ssoSessionIdleTimeout     = 1800
+    ssoSessionMaxLifespan     = 36000
     roles = {
       realm = [
-        for role in ["orthanc-viewer", "orthanc-uploader", "orthanc-editor", "orthanc-admin"] : {
+        for role in concat(
+          ["orthanc-viewer", "orthanc-uploader", "orthanc-editor", "orthanc-admin"],
+          local.tenant_role_names,
+          ) : {
           name       = role
           composite  = false
           clientRole = false
@@ -228,7 +298,7 @@ locals {
         }
       }]
     }]
-    users = [{
+    users = concat([{
       username        = var.orthanc_username
       firstName       = "Orthanc"
       lastName        = "Administrator"
@@ -242,7 +312,23 @@ locals {
         value     = local.orthanc_password
         temporary = false
       }]
-    }]
+      }], [
+      for tenant_key, tenant_user in local.tenant_test_users : {
+        username        = tenant_user.username
+        firstName       = "Synthetic"
+        lastName        = var.orthanc_tenants[tenant_key].display_name
+        email           = "${tenant_user.username}@local.invalid"
+        enabled         = true
+        emailVerified   = true
+        realmRoles      = [tenant_user.role]
+        requiredActions = []
+        credentials = [{
+          type      = "password"
+          value     = tenant_user.password
+          temporary = false
+        }]
+      }
+    ])
     identityProviders = local.oci_sso_enabled ? [{
       alias                     = "oci"
       displayName               = "OCI IAM SSO"
@@ -471,6 +557,16 @@ resource "random_password" "auth_service_secret" {
   min_lower   = 8
   min_upper   = 8
   min_numeric = 8
+  special     = false
+}
+
+resource "random_password" "tenant_test_user" {
+  for_each = var.enable_tenant_test_users ? var.orthanc_tenants : {}
+
+  length      = 32
+  min_lower   = 6
+  min_upper   = 6
+  min_numeric = 6
   special     = false
 }
 

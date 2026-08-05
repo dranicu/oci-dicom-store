@@ -2,8 +2,9 @@
 
 The stack can federate Orthanc with the OCI IAM identity domain that already
 contains workforce accounts. Terraform does not create or replace users. It
-creates one confidential OIDC application, four role groups, app grants for
-those groups, and a Keycloak broker configuration.
+creates one confidential OIDC application, four privileged platform role
+groups, four groups per configured tenant, app grants for those groups, and a
+Keycloak broker configuration.
 
 The browser authentication flow is:
 
@@ -60,9 +61,26 @@ shown by `make get-credentials` and `terraform -chdir=terraform output oci_sso`.
 | `Orthanc-Editors` | `orthanc-editor` | Clinical content editing and deletion |
 | `Orthanc-Administrators` | `orthanc-admin` | Full Orthanc administration |
 
+Those four roles are platform-wide and therefore cross tenant boundaries. Use
+them only for approved central operations. Normal workforce access uses the
+generated tenant groups, for example:
+
+| Generated OCI IAM group | Keycloak role | Effective access |
+| --- | --- | --- |
+| `Hospital A - Orthanc Viewers` | `tenant-hospital-a-viewer` | View/download studies labeled `tenant-hospital-a` |
+| `Hospital A - Orthanc Uploaders` | `tenant-hospital-a-uploader` | Upload plus view/download that tenant's labeled studies |
+| `Hospital A - Orthanc Editors` | `tenant-hospital-a-editor` | Tenant-scoped clinical operations and deletion |
+| `Hospital A - Orthanc Admins` | `tenant-hospital-a-admin` | Tenant-scoped operations and audit viewing; no study classification |
+
 Custom group names are supported through the `group_names` map. All four keys
 must be present because they are the stable authorization contract consumed by
 the Orthanc authorization service.
+
+Tenant group names are derived from `orthanc_tenants`; use
+`make get-credentials` or the `tenant_authorization` output for the exact map.
+Assign each person to one tenant role whenever possible. Membership in two
+tenant groups intentionally grants access to both label sets. Only the global
+`orthanc-admin` performs trusted study classification.
 
 Open the Orthanc Web UI and select **OCI IAM SSO**. A user not assigned to one
 of the application groups cannot use the OCI application. A user assigned to

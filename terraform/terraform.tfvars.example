@@ -50,6 +50,15 @@ oke_node_count = 2
 orthanc_replicas = 2
 postgres_instances = 2
 
+# Study-level tenant isolation. The label defaults to "tenant-<map-key>".
+orthanc_tenants = {
+  hospital-a = { display_name = "Hospital A" }
+  hospital-b = { display_name = "Hospital B" }
+}
+
+# Enable only while running make verify-compliance, then set false and apply.
+enable_tenant_test_users = false
+
 # Optional explicit S3-compatible bucket name. The bucket is always created in
 # compartment_id and is accessed through OCI's S3 compatibility endpoint.
 # object_storage_bucket_name = "hospital-dicom-images"

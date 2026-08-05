@@ -68,13 +68,18 @@ resource_before() {
 bucket_before="$(resource_before 'oci_objectstorage_bucket.dicom')"
 private_ip_before="$(resource_before 'oci_core_private_ip.orthanc_nlb')"
 sso_app_before="$(resource_before 'oci_identity_domains_app.orthanc_sso[0]')"
+sso_grant_count="$(jq '[
+  .resource_changes[]?
+  | select(.type == "oci_identity_domains_grant")
+  | select(.change.actions == ["delete"])
+] | length' <<<"${plan_json}")"
 oke_cluster_before="$(resource_before 'oci_containerengine_cluster.orthanc')"
 oke_node_pool_before="$(resource_before 'oci_containerengine_node_pool.orthanc')"
 
 needs_oci="false"
 if [[ "${purge_bucket}" == "true" && "${bucket_before}" != "null" ]] || \
    [[ "${private_ip_before}" != "null" ]] || \
-   [[ "${sso_app_before}" != "null" ]]; then
+   [[ "${sso_app_before}" != "null" ]] || ((sso_grant_count > 0)); then
   needs_oci="true"
 fi
 
@@ -157,19 +162,38 @@ if [[ "${sso_app_before}" != "null" ]]; then
   sso_app_id="$(jq -r '.id' <<<"${sso_app_before}")"
   sso_endpoint="$(jq -r '.idcs_endpoint' <<<"${sso_app_before}")"
   sso_get_error="$(mktemp "${TMPDIR:-/tmp}/oci-dicom-sso-get.XXXXXX")"
+  sso_app_present="false"
+  sso_app_active="false"
 
   if sso_app_json="$(
     oci "${oci_args[@]}" --endpoint "${sso_endpoint}" \
       identity-domains app get --app-id "${sso_app_id}" 2>"${sso_get_error}"
   )"; then
-    if [[ "$(jq -r '.data.active' <<<"${sso_app_json}")" == "true" ]]; then
-      printf 'Deactivating OCI Identity Domains app %s before deletion...\n' "${sso_app_id}"
+    sso_app_present="true"
+    sso_app_active="$(jq -r '.data.active' <<<"${sso_app_json}")"
+
+    if ((sso_grant_count > 0)) && [[ "${sso_app_active}" != "true" ]]; then
+      printf 'Reactivating OCI Identity Domains app %s to revoke its grants...\n' "${sso_app_id}"
       oci "${oci_args[@]}" --endpoint "${sso_endpoint}" \
         identity-domains app patch \
         --app-id "${sso_app_id}" \
         --schemas '["urn:ietf:params:scim:api:messages:2.0:PatchOp"]' \
-        --operations '[{"op":"replace","path":"active","value":false}]' \
+        --operations '[{"op":"replace","path":"active","value":true}]' \
         >/dev/null
+      for _ in $(seq 1 30); do
+        sso_app_active="$(
+          oci "${oci_args[@]}" --endpoint "${sso_endpoint}" \
+            identity-domains app get --app-id "${sso_app_id}" |
+            jq -r '.data.active'
+        )"
+        [[ "${sso_app_active}" == "true" ]] && break
+        sleep 2
+      done
+      [[ "${sso_app_active}" == "true" ]] || {
+        printf 'OCI Identity Domains app %s did not become active for grant cleanup.\n' \
+          "${sso_app_id}" >&2
+        exit 1
+      }
     fi
   elif grep -Eq '(^|[^0-9])404([^0-9]|$)|NotAuthorizedOrNotFound' "${sso_get_error}"; then
     printf 'OCI Identity Domains app %s is already absent.\n' "${sso_app_id}"
@@ -179,6 +203,36 @@ if [[ "${sso_app_before}" != "null" ]]; then
     exit 1
   fi
   rm -f "${sso_get_error}"
+
+  if ((sso_grant_count > 0)); then
+    printf 'Revoking %s OCI Identity Domains grants while the app is active...\n' \
+      "${sso_grant_count}"
+    terraform destroy -auto-approve -target=oci_identity_domains_grant.orthanc_sso
+  fi
+
+  if [[ "${sso_app_present}" == "true" && "${sso_app_active}" == "true" ]]; then
+    printf 'Deactivating OCI Identity Domains app %s before deletion...\n' "${sso_app_id}"
+    oci "${oci_args[@]}" --endpoint "${sso_endpoint}" \
+      identity-domains app patch \
+      --app-id "${sso_app_id}" \
+      --schemas '["urn:ietf:params:scim:api:messages:2.0:PatchOp"]' \
+      --operations '[{"op":"replace","path":"active","value":false}]' \
+      >/dev/null
+    for _ in $(seq 1 30); do
+      sso_app_active="$(
+        oci "${oci_args[@]}" --endpoint "${sso_endpoint}" \
+          identity-domains app get --app-id "${sso_app_id}" |
+          jq -r '.data.active'
+      )"
+      [[ "${sso_app_active}" == "false" ]] && break
+      sleep 2
+    done
+    [[ "${sso_app_active}" == "false" ]] || {
+      printf 'OCI Identity Domains app %s did not become inactive for deletion.\n' \
+        "${sso_app_id}" >&2
+      exit 1
+    }
+  fi
 fi
 
 # Delete OKE first so its service controller cannot recreate the unmanaged NLB.

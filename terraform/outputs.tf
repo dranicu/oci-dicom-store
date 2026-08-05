@@ -68,6 +68,34 @@ output "orthanc_password" {
   sensitive   = true
 }
 
+output "tenant_authorization" {
+  description = "Configured tenant labels, Keycloak roles, and OCI Identity Domains group names."
+  value = {
+    tenants = {
+      for tenant_key, tenant in var.orthanc_tenants : tenant_key => {
+        display_name = tenant.display_name
+        label        = local.tenant_labels[tenant_key]
+        roles = {
+          for permission in ["viewer", "uploader", "editor", "admin"] :
+          permission => "tenant-${tenant_key}-${permission}"
+        }
+        sso_groups = local.oci_sso_enabled ? {
+          for permission in ["viewer", "uploader", "editor", "admin"] :
+          permission => local.tenant_sso_roles["tenant-${tenant_key}-${permission}"]
+        } : null
+      }
+    }
+    trusted_classifier_role = "orthanc-admin"
+    quarantine_behavior     = "Studies are invisible to tenant roles until a trusted classifier assigns exactly one configured label."
+  }
+}
+
+output "tenant_test_credentials" {
+  description = "Synthetic tenant users used only by the automated tenant-isolation acceptance test."
+  value       = local.tenant_test_users
+  sensitive   = true
+}
+
 output "keycloak_endpoint" {
   description = "Keycloak identity-provider endpoint and administration console root."
   value       = "${local.public_base_url}/keycloak"
@@ -180,5 +208,22 @@ output "deployment_summary" {
     nlb_private_ip         = local.nlb_private_ip
     postgres_private_ip    = oci_psql_db_system.orthanc.network_details[0].primary_db_endpoint_private_ip
     replicas               = var.orthanc_replicas
+  }
+}
+
+output "acceptance_context" {
+  description = "Non-secret OCI identifiers and CLI context consumed by acceptance and recovery tests."
+  value = {
+    auth               = var.oci_auth
+    profile            = var.oci_profile
+    region             = var.region
+    compartment_id     = var.compartment_id
+    bucket_name        = oci_objectstorage_bucket.dicom.name
+    namespace          = data.oci_objectstorage_namespace.this.namespace
+    postgres_id        = oci_psql_db_system.orthanc.id
+    postgres_subnet_id = oci_core_subnet.database.id
+    postgres_nsg_ids   = [local.postgres_nsg.id]
+    postgres_version   = var.postgres_version
+    postgres_shape     = var.postgres_shape
   }
 }

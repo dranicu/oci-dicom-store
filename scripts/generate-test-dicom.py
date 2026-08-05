@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import struct
 import uuid
 from datetime import datetime, timezone
@@ -37,14 +38,20 @@ def unsigned_short(group: int, element: int, value: int) -> bytes:
     return encode_element(group, element, "US", struct.pack("<H", value))
 
 
-def build_dicom() -> bytes:
+def build_dicom(
+    *,
+    patient_id: str | None = None,
+    study_uid: str | None = None,
+    series_uid: str | None = None,
+    instance_uid: str | None = None,
+) -> tuple[bytes, dict[str, str]]:
     sop_class_uid = "1.2.840.10008.5.1.4.1.1.7"
     transfer_syntax_uid = "1.2.840.10008.1.2.1"
     implementation_uid = "1.2.826.0.1.3680043.10.543.1"
-    study_uid = uid()
-    series_uid = uid()
-    instance_uid = uid()
-    patient_id = f"CODEX-{uuid.uuid4().hex[:12].upper()}"
+    study_uid = study_uid or uid()
+    series_uid = series_uid or uid()
+    instance_uid = instance_uid or uid()
+    patient_id = patient_id or f"CODEX-{uuid.uuid4().hex[:12].upper()}"
     now = datetime.now(timezone.utc)
 
     file_meta = b"".join(
@@ -91,7 +98,14 @@ def build_dicom() -> bytes:
         ]
     )
 
-    return (b"\0" * 128) + b"DICM" + file_meta_group_length + file_meta + dataset
+    payload = (b"\0" * 128) + b"DICM" + file_meta_group_length + file_meta + dataset
+    metadata = {
+        "PatientID": patient_id,
+        "StudyInstanceUID": study_uid,
+        "SeriesInstanceUID": series_uid,
+        "SOPInstanceUID": instance_uid,
+    }
+    return payload, metadata
 
 
 def main() -> None:
@@ -99,9 +113,19 @@ def main() -> None:
         description="Generate a minimal synthetic DICOM file for deployment verification."
     )
     parser.add_argument("output", type=Path, help="Destination .dcm file")
+    parser.add_argument("--patient-id", help="Synthetic Patient ID to embed")
+    parser.add_argument("--study-uid", help="Study Instance UID to embed")
+    parser.add_argument("--series-uid", help="Series Instance UID to embed")
+    parser.add_argument("--instance-uid", help="SOP Instance UID to embed")
     args = parser.parse_args()
-    args.output.write_bytes(build_dicom())
-    print(f"Generated synthetic DICOM: {args.output}")
+    payload, metadata = build_dicom(
+        patient_id=args.patient_id,
+        study_uid=args.study_uid,
+        series_uid=args.series_uid,
+        instance_uid=args.instance_uid,
+    )
+    args.output.write_bytes(payload)
+    print(json.dumps(metadata, sort_keys=True))
 
 
 if __name__ == "__main__":

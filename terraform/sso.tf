@@ -1,7 +1,8 @@
 locals {
   oci_sso_enabled = var.oci_identity_domain_sso != null
-  oci_sso_roles = local.oci_sso_enabled ? (
-    var.oci_identity_domain_sso.group_names
+  oci_sso_roles = local.oci_sso_enabled ? merge(
+    var.oci_identity_domain_sso.group_names,
+    local.tenant_sso_roles,
   ) : {}
   oci_sso_domain_url = local.oci_sso_enabled ? trimsuffix(
     data.oci_identity_domain.orthanc_sso[0].url,

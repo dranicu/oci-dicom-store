@@ -112,6 +112,22 @@ reads/writes, then delete the old key.
 Exercise restore into an isolated compartment. Validate study/series/instance
 counts and retrieve representative objects before declaring the restore usable.
 
+The repository includes a managed-service restore drill that performs the
+database half of that procedure without overwriting the source system:
+
+```bash
+make restore-drill PRIVATE_KEY=/absolute/path/to/id_rsa
+```
+
+It creates an on-demand backup, creates a one-node temporary OCI PostgreSQL
+system from the backup in the private database subnet, queries the restored
+Orthanc and Keycloak schemas from the bastion, and deletes both drill
+resources. The EXIT cleanup is intentional: a failed verification must not
+leave unmanaged billable resources that later block stack decommissioning.
+Retain the command output as recovery evidence. A production recovery exercise
+must additionally restore or select matching Object Storage versions and run
+representative WADO-RS reads.
+
 For regional disaster recovery, add Object Storage replication and PostgreSQL
 cross-region backup copy policies according to the organization's RPO/RTO and
 data-residency rules. They are not enabled generically because destination
@@ -163,15 +179,53 @@ Traditional DICOM C-STORE port 4242 is disabled in this stack. If required,
 expose it only through a private Network Load Balancer, enable DICOM TLS, and
 restrict calling AEs and network sources.
 
+## Tenant classification
+
+Tenant isolation is enforced with one configured Orthanc study label per
+tenant. New STOW-RS/REST uploads are intentionally unlabeled and invisible to
+tenant roles. A trusted classifier reviews the ingest source and assigns the
+label using a DICOM Study Instance UID or Orthanc study ID:
+
+```bash
+make classify-study TENANT=hospital-a STUDY_UID=2.25.1234
+make classify-study TENANT=hospital-a STUDY_ID=orthanc-internal-id
+```
+
+Do not derive this decision solely from uploader-controlled DICOM tags. The
+script rejects labels outside the Terraform tenant catalog, removes competing
+configured tenant labels, and confirms that exactly one remains. The global
+platform roles cross tenant boundaries and must be restricted to central
+operators. A person with two tenant role groups receives the union of both
+authorized labels by design.
+
+Run `make verify-compliance` after tenant or authorization changes. It uploads
+two synthetic studies, confirms quarantine, classifies one into each of two
+tenants, proves positive QIDO/WADO access and cross-tenant denial, verifies
+audit/storage/database evidence, then removes the studies. Disable
+`enable_tenant_test_users` and apply after acceptance.
+
+## Failure exercise
+
+With at least two Orthanc replicas, run:
+
+```bash
+make failure-test PRIVATE_KEY=/absolute/path/to/id_rsa
+```
+
+The script deletes one Orthanc pod, probes public QIDO-RS throughout the
+replacement window, waits for the deployment to recover, and confirms the old
+pod was replaced. It does not delete a study or any OCI resource.
+
 ## Decommissioning
 
 1. Stop new ingest and record the approved retention disposition.
 2. Export and verify required studies and audit evidence.
 3. Run `make destroy`. No bastion SSH key or separate Kubernetes namespace
-   cleanup is required. The workflow destroys OKE first, deletes its exact
-   Kubernetes-managed NLB, and deactivates the OCI SSO application before the
-   final Terraform destroy. If the bucket is non-empty, destroy fails by design
-   and leaves the DICOM data intact.
+   cleanup is required. The workflow revokes SSO grants while their application
+   is active, deactivates that application, destroys OKE, deletes its exact
+   Kubernetes-managed NLB, and then runs the final Terraform destroy. It also
+   recovers this ordering when retrying an already-partial destroy. If the
+   bucket is non-empty, destroy fails by design and leaves the DICOM data intact.
 4. If retention requires preserving the data, do not bypass that failure.
 5. If an authorized data custodian has approved permanent deletion, run
    `make destroy-purge`. The script displays the managed bucket and requires

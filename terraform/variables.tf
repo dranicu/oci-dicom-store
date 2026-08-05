@@ -463,6 +463,41 @@ variable "orthanc_password" {
   }
 }
 
+variable "orthanc_tenants" {
+  description = "Study-level tenants enforced by Orthanc labels. Map keys become stable role/user slugs; labels must be unique."
+  type = map(object({
+    display_name = string
+    label        = optional(string)
+  }))
+  default = {
+    tenant-a = {
+      display_name = "Tenant A"
+    }
+    tenant-b = {
+      display_name = "Tenant B"
+    }
+  }
+
+  validation {
+    condition = length(var.orthanc_tenants) >= 2 && alltrue([
+      for tenant_key, tenant in var.orthanc_tenants :
+      can(regex("^[a-z][a-z0-9-]{1,30}[a-z0-9]$", tenant_key)) &&
+      length(trimspace(tenant.display_name)) >= 3 &&
+      can(regex("^[a-z][a-z0-9-]{1,62}[a-z0-9]$", coalesce(tenant.label, "tenant-${tenant_key}")))
+      ]) && length(distinct([
+        for tenant_key, tenant in var.orthanc_tenants :
+        coalesce(tenant.label, "tenant-${tenant_key}")
+    ])) == length(var.orthanc_tenants)
+    error_message = "Define at least two tenants. Tenant keys and labels must be unique lowercase slugs; display names must contain at least three characters."
+  }
+}
+
+variable "enable_tenant_test_users" {
+  description = "Create one synthetic editor user per tenant for automated isolation testing. Disable after acceptance testing."
+  type        = bool
+  default     = false
+}
+
 variable "postgres_admin_username" {
   description = "PostgreSQL administrative username used by Orthanc."
   type        = string
