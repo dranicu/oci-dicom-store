@@ -101,6 +101,21 @@ output "keycloak_endpoint" {
   value       = "${local.public_base_url}/keycloak"
 }
 
+output "keycloak_oci_broker" {
+  description = "Non-secret OCI broker settings reconciled into an existing Keycloak realm after bootstrap."
+  value = local.oci_sso_enabled ? {
+    enabled       = true
+    claim_name    = local.oci_sso_group_claim_name
+    default_scope = local.keycloak_realm.identityProviders[0].config.defaultScope
+    mappers       = local.keycloak_realm.identityProviderMappers
+    } : {
+    enabled       = false
+    claim_name    = null
+    default_scope = null
+    mappers       = []
+  }
+}
+
 output "keycloak_admin_username" {
   description = "Keycloak master-realm bootstrap administrator."
   value       = "keycloak-admin"

@@ -223,8 +223,9 @@ pod was replaced. It does not delete a study or any OCI resource.
 3. Run `make destroy`. No bastion SSH key or separate Kubernetes namespace
    cleanup is required. The workflow revokes SSO grants while their application
    is active, deactivates that application, destroys OKE, deletes its exact
-   Kubernetes-managed NLB, and then runs the final Terraform destroy. It also
-   recovers this ordering when retrying an already-partial destroy. If the
+   Kubernetes-managed NLB, removes the stack-specific OCI custom claim, and
+   then runs the final Terraform destroy. It also recovers this ordering when
+   retrying an already-partial destroy. If the
    bucket is non-empty, destroy fails by design and leaves the DICOM data intact.
 4. If retention requires preserving the data, do not bypass that failure.
 5. If an authorized data custodian has approved permanent deletion, run

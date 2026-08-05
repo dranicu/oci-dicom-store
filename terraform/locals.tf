@@ -341,16 +341,19 @@ locals {
       linkOnly                  = false
       firstBrokerLoginFlowAlias = "first broker login"
       config = {
-        authorizationUrl  = "${local.oci_sso_domain_url}/oauth2/v1/authorize"
-        tokenUrl          = "${local.oci_sso_domain_url}/oauth2/v1/token"
-        userInfoUrl       = "${local.oci_sso_domain_url}/oauth2/v1/userinfo"
-        logoutUrl         = "${local.oci_sso_domain_url}/oauth2/v1/userlogout"
-        jwksUrl           = "${local.oci_sso_domain_url}/admin/v1/SigningCert/jwk"
-        issuer            = local.oci_sso_issuer
-        clientId          = oci_identity_domains_app.orthanc_sso[0].name
-        clientSecret      = oci_identity_domains_app.orthanc_sso[0].client_secret
-        clientAuthMethod  = "client_secret_post"
-        defaultScope      = "openid profile email get_groups"
+        authorizationUrl = "${local.oci_sso_domain_url}/oauth2/v1/authorize"
+        tokenUrl         = "${local.oci_sso_domain_url}/oauth2/v1/token"
+        userInfoUrl      = "${local.oci_sso_domain_url}/oauth2/v1/userinfo"
+        logoutUrl        = "${local.oci_sso_domain_url}/oauth2/v1/userlogout"
+        jwksUrl          = "${local.oci_sso_domain_url}/admin/v1/SigningCert/jwk"
+        issuer           = local.oci_sso_issuer
+        clientId         = oci_identity_domains_app.orthanc_sso[0].name
+        clientSecret     = oci_identity_domains_app.orthanc_sso[0].client_secret
+        clientAuthMethod = "client_secret_post"
+        # The stack-specific scope emits a flat string array through an OCI
+        # custom claim. OCI's get_groups claim is an array of objects that the
+        # stock Keycloak Claim-to-Role mapper cannot match.
+        defaultScope      = "openid profile email ${one(oci_identity_domains_app.orthanc_sso[0].scopes).fqs}"
         syncMode          = "FORCE"
         validateSignature = "true"
         useJwksUrl        = "true"
@@ -365,7 +368,7 @@ locals {
         identityProviderAlias  = "oci"
         identityProviderMapper = "oidc-role-idp-mapper"
         config = {
-          claim         = "groups"
+          claim         = local.oci_sso_group_claim_name
           "claim.value" = group_name
           role          = role
           syncMode      = "FORCE"

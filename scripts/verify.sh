@@ -155,6 +155,14 @@ if [[ "$(jq -r '.enabled' <<<"${sso_json}")" == "true" ]]; then
       "${sso_redirect:-none}" >&2
     exit 1
   }
+  broker_json="$(terraform -chdir="${terraform_dir}" output -json keycloak_oci_broker)"
+  group_scope="$(jq -er '.default_scope | split(" ")[-1]' <<<"${broker_json}")"
+  encoded_group_scope="$(jq -rn --arg scope "${group_scope}" '$scope | @uri')"
+  [[ "${sso_redirect}" == *"${encoded_group_scope}"* ]] || {
+    printf 'Keycloak did not request the OCI group-claim scope %s.\n' \
+      "${group_scope}" >&2
+    exit 1
+  }
 
   # Reaching OCI's authorize endpoint is not sufficient: Identity Domains can
   # reject the request there when the Keycloak broker callback is not an exact
@@ -178,6 +186,23 @@ if [[ "$(jq -r '.enabled' <<<"${sso_json}")" == "true" ]]; then
       "${sso_authorize_status}" "${sso_authorize_error:-unknown error}" >&2
     exit 1
   fi
+  acceptance_json="$(terraform -chdir="${terraform_dir}" output -json acceptance_context)"
+  oci_cli_auth="$(jq -r '.auth' <<<"${acceptance_json}")"
+  case "${oci_cli_auth}" in
+    APIKey) oci_cli_auth="api_key" ;;
+    SecurityToken) oci_cli_auth="security_token" ;;
+    InstancePrincipal) oci_cli_auth="instance_principal" ;;
+    ResourcePrincipal) oci_cli_auth="resource_principal" ;;
+    OKEWorkloadIdentity) oci_cli_auth="oke_workload_identity" ;;
+    *) printf 'Unsupported OCI CLI auth mode: %s\n' "${oci_cli_auth}" >&2; exit 1 ;;
+  esac
+  OCI_IDENTITY_DOMAIN_URL="${sso_domain_url}" \
+  OCI_CUSTOM_CLAIM_NAME="$(jq -er '.claim_name' <<<"${broker_json}")" \
+  OCI_CUSTOM_CLAIM_SCOPE="${group_scope}" \
+  OCI_CLI_PROFILE="$(jq -r '.profile' <<<"${acceptance_json}")" \
+  OCI_CLI_AUTH="${oci_cli_auth}" \
+    "${project_dir}/scripts/manage-oci-custom-claim.sh" check
+  "${project_dir}/scripts/reconcile-keycloak-oci-mappers.sh" --check
   printf 'OK  OCI IAM Identity Domains SSO: %s\n' "${sso_domain_url}"
 fi
 

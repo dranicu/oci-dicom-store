@@ -1,5 +1,12 @@
 locals {
   oci_sso_enabled = var.oci_identity_domain_sso != null
+  oci_cli_auth = {
+    APIKey              = "api_key"
+    SecurityToken       = "security_token"
+    InstancePrincipal   = "instance_principal"
+    ResourcePrincipal   = "resource_principal"
+    OKEWorkloadIdentity = "oke_workload_identity"
+  }
   oci_sso_roles = local.oci_sso_enabled ? merge(
     var.oci_identity_domain_sso.group_names,
     local.tenant_sso_roles,
@@ -14,6 +21,7 @@ locals {
     # broker endpoint path. OCI Identity Domains requires an exact match.
     "${local.public_base_url}/keycloak/realms/orthanc/broker/oci/endpoint"
   ) : null
+  oci_sso_group_claim_name = local.oci_sso_enabled ? "${replace(local.resource_name, "-", "_")}_group_names" : null
 }
 
 data "oci_identity_domain" "orthanc_sso" {
@@ -57,8 +65,62 @@ resource "oci_identity_domains_app" "orthanc_sso" {
   landing_page_url = "${local.public_base_url}/orthanc/ui/app/"
   force_delete     = true
 
+  # OCI's built-in get_groups claim is an array of objects. Keycloak's stock
+  # Claim-to-Role mapper only matches scalar values or arrays of scalars, so
+  # expose a stack-specific scope whose custom claim flattens group names.
+  is_oauth_resource = true
+  audience          = "${local.public_base_url}/orthanc"
+  scopes {
+    value            = "/group_names"
+    display_name     = "Orthanc group names"
+    description      = "Group display names used by the Orthanc Keycloak broker"
+    requires_consent = false
+  }
+
   lifecycle {
     ignore_changes = [schemas]
+  }
+}
+
+resource "terraform_data" "orthanc_sso_group_claim" {
+  for_each = local.oci_sso_enabled ? toset(["enabled"]) : toset([])
+
+  input = {
+    endpoint   = local.oci_sso_domain_url
+    claim_name = local.oci_sso_group_claim_name
+    scope      = one(oci_identity_domains_app.orthanc_sso[0].scopes).fqs
+    profile    = var.oci_profile
+    auth       = local.oci_cli_auth[var.oci_auth]
+  }
+
+  triggers_replace = [
+    local.oci_sso_group_claim_name,
+    one(oci_identity_domains_app.orthanc_sso[0].scopes).fqs,
+    var.oci_profile,
+    var.oci_auth,
+  ]
+
+  provisioner "local-exec" {
+    command = "${path.module}/../scripts/manage-oci-custom-claim.sh ensure"
+    environment = {
+      OCI_IDENTITY_DOMAIN_URL = self.input.endpoint
+      OCI_CUSTOM_CLAIM_NAME   = self.input.claim_name
+      OCI_CUSTOM_CLAIM_SCOPE  = self.input.scope
+      OCI_CLI_PROFILE         = self.input.profile
+      OCI_CLI_AUTH            = self.input.auth
+    }
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = "${path.module}/../scripts/manage-oci-custom-claim.sh delete"
+    environment = {
+      OCI_IDENTITY_DOMAIN_URL = self.input.endpoint
+      OCI_CUSTOM_CLAIM_NAME   = self.input.claim_name
+      OCI_CUSTOM_CLAIM_SCOPE  = self.input.scope
+      OCI_CLI_PROFILE         = self.input.profile
+      OCI_CLI_AUTH            = self.input.auth
+    }
   }
 }
 

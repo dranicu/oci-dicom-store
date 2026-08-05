@@ -44,9 +44,12 @@ make get-credentials
 ```
 
 Terraform registers the exact Keycloak callback URL in OCI IAM and configures
-the authorization-code flow with PKCE. Keycloak requests OCI's `get_groups`
-scope and validates the returned token signature and issuer against the
-identity-domain endpoints.
+the authorization-code flow with PKCE. It also creates an application-specific
+OAuth scope and custom identity-token claim that flattens OCI group objects to
+group-name strings. This is required because OCI's built-in `get_groups` claim
+is an array of objects, while Keycloak's stock Claim-to-Role mapper matches an
+array of strings. Keycloak validates the returned token signature and issuer
+against the identity-domain endpoints.
 
 ## Give an existing user access
 
@@ -86,6 +89,11 @@ Open the Orthanc Web UI and select **OCI IAM SSO**. A user not assigned to one
 of the application groups cannot use the OCI application. A user assigned to
 the application but to no mapped role cannot access Orthanc resources.
 
+Group changes take effect on the next brokered login, not in an already-issued
+Keycloak session. After adding or removing a user, sign out of Orthanc and sign
+in again with **OCI IAM SSO**. Administrators can also revoke that user's
+Keycloak sessions when access must change immediately.
+
 The generated local `orthanc-admin` Keycloak account remains available as a
 break-glass account. Store that password securely and use OCI SSO for normal
 interactive access.
@@ -95,11 +103,11 @@ interactive access.
 - The OCI client secret is sensitive Terraform state and is mounted into
   Keycloak through a Kubernetes Secret, not a ConfigMap.
 - Identity-domain writes happen through the home-region OCI provider.
-- `make verify` checks OCI discovery metadata and confirms that Keycloak sends
-  an SSO login to the configured OCI authorization endpoint.
+- `make verify` checks OCI discovery metadata, the scoped custom claim, every
+  Keycloak role mapper, and the authorization request sent to OCI.
 - Destroy removes the stack-created confidential application, grants, and role
-  groups. It does not delete existing OCI IAM users. Memberships in those
-  stack-created groups disappear with the groups.
+  groups as well as the custom claim. It does not delete existing OCI IAM
+  users. Memberships in those stack-created groups disappear with the groups.
 - Setting `oci_identity_domain_sso = null` disables federation on the next
   fresh deployment. The local Keycloak account remains usable.
 

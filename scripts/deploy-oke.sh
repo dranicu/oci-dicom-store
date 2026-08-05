@@ -172,4 +172,6 @@ printf 'OKE internal NLB did not acquire reserved IP %s within 10 minutes.\n' \
 exit 1
 REMOTE
 
+"${project_dir}/scripts/reconcile-keycloak-oci-mappers.sh"
+
 printf 'OKE Orthanc, authorization service, Keycloak, and NLB deployment completed.\n'
