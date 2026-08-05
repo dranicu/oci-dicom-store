@@ -54,6 +54,14 @@ resource "oci_containerengine_node_pool" "orthanc" {
   ssh_public_key     = local.bastion_ssh_public_key
   freeform_tags      = local.tags
 
+  # Some tenancies enforce IMDSv2-only instances. OKE otherwise sends the
+  # legacy-compatible default (false) to Compute, which makes every worker
+  # launch fail in those tenancies. Oracle documents this node_metadata key as
+  # the supported OKE control for disabling the IMDSv1 endpoint.
+  node_metadata = {
+    areLegacyImdsEndpointsDisabled = "true"
+  }
+
   node_shape_config {
     ocpus         = var.oke_node_ocpus
     memory_in_gbs = var.oke_node_memory_gb
