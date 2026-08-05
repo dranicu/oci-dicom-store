@@ -54,6 +54,7 @@ keycloak_endpoint="$(terraform -chdir="${terraform_dir}" output -raw keycloak_en
 uploaded_instance_id=""
 access_token=""
 sso_cookie_jar=""
+sso_authorize_response=""
 cleanup() {
   if [[ "${delete_after_upload}" == true && -n "${uploaded_instance_id}" ]]; then
     curl \
@@ -69,6 +70,9 @@ cleanup() {
   fi
   if [[ -n "${sso_cookie_jar}" ]]; then
     rm -f "${sso_cookie_jar}"
+  fi
+  if [[ -n "${sso_authorize_response}" ]]; then
+    rm -f "${sso_authorize_response}"
   fi
 }
 trap cleanup EXIT
@@ -151,6 +155,29 @@ if [[ "$(jq -r '.enabled' <<<"${sso_json}")" == "true" ]]; then
       "${sso_redirect:-none}" >&2
     exit 1
   }
+
+  # Reaching OCI's authorize endpoint is not sufficient: Identity Domains can
+  # reject the request there when the Keycloak broker callback is not an exact
+  # registered redirect URI. Exercise that request without following the login
+  # redirect so verification remains non-interactive.
+  sso_authorize_response="$(mktemp "${TMPDIR:-/tmp}/oci-dicom-sso-authorize.XXXXXX")"
+  sso_authorize_status="$(curl \
+    --silent \
+    --show-error \
+    --cookie "${sso_cookie_jar}" \
+    --output "${sso_authorize_response}" \
+    --write-out '%{http_code}' \
+    --connect-timeout 15 \
+    --max-time 120 \
+    "${sso_redirect}")"
+  if ((10#${sso_authorize_status} >= 400)); then
+    sso_authorize_error="$(jq -r \
+      'select(type == "object") | .error_description // .error // empty' \
+      "${sso_authorize_response}" 2>/dev/null || true)"
+    printf 'OCI IAM rejected the Keycloak SSO authorization request (HTTP %s): %s\n' \
+      "${sso_authorize_status}" "${sso_authorize_error:-unknown error}" >&2
+    exit 1
+  fi
   printf 'OK  OCI IAM Identity Domains SSO: %s\n' "${sso_domain_url}"
 fi
 

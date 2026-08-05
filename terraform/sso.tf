@@ -10,7 +10,9 @@ locals {
   ) : null
   oci_sso_issuer = local.oci_sso_enabled ? "${trimsuffix(replace(local.oci_sso_domain_url, ":443", ""), "/")}/" : null
   oci_sso_callback_url = local.oci_sso_enabled ? (
-    "${local.public_base_url}/keycloak/realms/orthanc/broker/oci/callback"
+    # Keycloak exposes the external OIDC identity-provider callback at the
+    # broker endpoint path. OCI Identity Domains requires an exact match.
+    "${local.public_base_url}/keycloak/realms/orthanc/broker/oci/endpoint"
   ) : null
 }
 
