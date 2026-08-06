@@ -14,7 +14,8 @@ The selected Orthanc configuration is:
 - `PostgreSQL.EnableStorage = false`
 - `AwsS3Storage.StorageStructure = flat`
 - `AwsS3Storage.VirtualAddressing = false`
-- an OCI Customer Secret Key scoped by a bucket-specific IAM policy
+- a stack-managed OCI Customer Secret Key on an existing IAM user, scoped by a
+  bucket-specific group policy
 - a private, versioned Object Storage bucket
 
 OCI's compatibility endpoint uses the tenancy Object Storage namespace and

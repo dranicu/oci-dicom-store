@@ -57,15 +57,16 @@ matching the reference architecture's API Gateway flow.
 
 - Terraform 1.6 or newer
 - Ansible Core 2.17 or newer for automatic bastion configuration
-- OCI CLI configured with an API-key or security-token profile when
-  `create_storage_identity = true`, or execution through an instance/resource
-  principal
+- curl with AWS Signature Version 4 support (`curl --aws-sigv4`)
+- OCI credentials configured for Terraform to inspect the selected existing
+  storage user and manage its stack-specific Customer Secret Key
 - a tenancy OCID, target compartment OCID, workload region, and tenancy home region
 - sufficient OCI service limits for API Gateway, OKE enhanced clusters, Compute
   worker nodes, Network Load Balancer, and OCI Database with PostgreSQL
 - tenancy IAM privileges for the bastion dynamic group and OKE service policy,
-  plus user/group privileges if `create_storage_identity = true`, and Identity
-  Domains application/group/grant privileges when OCI SSO is enabled
+  plus user, group, membership, policy, and Customer Secret Key privileges when
+  `create_storage_customer_secret_key = true`, and Identity Domains
+  application/group/grant privileges when OCI SSO is enabled
 
 Read [IAM prerequisites](docs/iam.md) before applying. The local `~/.oci/config`
 is read through the selected profile; key material is never copied into this
@@ -104,8 +105,9 @@ planning arguments with `TF_ARGS`, for example
    cp terraform/terraform.tfvars.example terraform/terraform.tfvars
    ```
 
-2. Set the four OCI placement values, `ssh_public_key_path`, a unique
-   `storage_identity_email`, and replace `allowed_client_cidrs` with the
+2. Set the four OCI placement values, `ssh_public_key_path`, the email of an
+   existing OCI IAM user in `storage_user_email`, and replace
+   `allowed_client_cidrs` with the
    hospital, VPN, or corporate egress CIDRs.
    Every regional workload resource, the Object Storage bucket, and the
    bucket-scoped runtime policy use `compartment_id`. Orthanc can access the
@@ -113,8 +115,14 @@ planning arguments with `TF_ARGS`, for example
    so the stack does not modify the tenancy-wide default S3 compartment.
    Set `bastion_allowed_ssh_cidrs` separately if administrators use different
    egress addresses. Never use `0.0.0.0/0` for production SSH.
-   The deployment preflight queries OCI IAM and stops before apply if the
-   storage identity email is already assigned.
+   Terraform requires the email to resolve to exactly one existing OCI IAM
+   user and never creates, updates, or deletes that user. Destroy removes only
+   the stack's Customer Secret Key, group membership, group, and bucket policy;
+   the selected user and any unrelated credentials remain intact.
+   After apply, automation sends a signed, read-only list request to the target
+   bucket and waits up to 20 minutes for OCI's regional credential and IAM
+   propagation before deploying the credential to Orthanc. Override this only
+   when necessary with `STORAGE_CREDENTIAL_TIMEOUT_SECONDS`.
    To use existing OCI accounts for Orthanc, set `oci_identity_domain_sso` to
    the domain OCID that owns those users. See [OCI IAM SSO](docs/sso.md).
    Replace the example `orthanc_tenants` map with the approved tenant catalog.
@@ -307,9 +315,13 @@ NLB public merely to bypass the limit.
   is distributed to clients.
 
 Orthanc's S3 plugin requires an access/secret pair; it cannot sign the S3
-compatibility protocol with OKE workload identity. The dedicated Customer Secret
-Key, database passwords, Keycloak secrets, and initial user password therefore
-exist in Terraform state.
+compatibility protocol with OKE workload identity. Terraform creates only a
+stack-specific Customer Secret Key on the existing user selected by
+`storage_user_email`; it never manages that user. The Customer Secret Key,
+database passwords, Keycloak secrets, and initial user password therefore exist
+in Terraform state. OCI can report a new key as `ACTIVE` before the regional
+Object Storage data plane accepts it, so the deployment's signed S3 readiness
+gate is intentional and must not be bypassed during credential rotation.
 Use encrypted remote state with strict operator access. OCI Resource Manager is
 the recommended production runner:
 
@@ -330,9 +342,9 @@ scripts/package-resource-manager.sh output.zip /absolute/path/to/key.pub
 No private SSH key is included.
 
 If the deployment principal cannot manage tenancy IAM, set
-`create_storage_identity = false` and supply an existing Customer Secret Key
-pair through sensitive Resource Manager variables or `TF_VAR_*` environment
-variables. Do not commit them to `terraform/terraform.tfvars`.
+`create_storage_customer_secret_key = false` and supply an existing Customer
+Secret Key pair through sensitive Resource Manager variables or `TF_VAR_*`
+environment variables. Do not commit them to `terraform/terraform.tfvars`.
 
 The storage choice, alternatives, consistency boundary, and recovery
 implications are recorded in

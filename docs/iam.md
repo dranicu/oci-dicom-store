@@ -38,19 +38,22 @@ successful initial plan in your tenancy.
 
 ## Storage identity modes
 
-### Automated identity
+### Existing OCI IAM user
 
-With `create_storage_identity = true`, Terraform creates a classic OCI IAM user,
-group, membership, and Customer Secret Key at tenancy scope; OCI does not place
-these global identity objects in application compartments. The bucket-scoped
-policy itself is placed in `compartment_id`. The deployment principal must be
-allowed to manage these resources. This is usually appropriate only for a
-tenancy administrator or a carefully delegated Resource Manager stack.
+With `create_storage_customer_secret_key = true`, Terraform looks up exactly
+one existing OCI IAM user by `storage_user_email`. It creates a stack-specific
+group, membership, Customer Secret Key, and bucket-scoped policy. Terraform
+does not create, modify, or delete the selected user. The deployment principal
+must be allowed to inspect users and manage the stack-owned IAM resources.
+Destroy deletes those four stack-owned access resources but leaves the selected
+user and every unrelated credential on that user untouched.
 
-Set `storage_identity_email` to a unique, monitored address or alias. OCI IAM
-identity domains commonly require a primary email when creating a user, and
-OCI requires that email to be unique across users in the tenancy.
-`scripts/deploy.sh` verifies uniqueness through OCI CLI before applying.
+The selected user must have the Customer Secret Key capability enabled and an
+available key slot; OCI permits at most two Customer Secret Keys per user.
+OCI may return the key as `ACTIVE` before it has propagated to the regional S3
+compatibility endpoint. The apply workflow waits for a successful signed,
+read-only bucket request before it updates Orthanc, preventing a newly created
+credential from reaching the workload prematurely.
 
 The generated runtime policy is bucket-scoped:
 
@@ -62,6 +65,11 @@ Allow group <deployment>-storage to manage objects in compartment id <s3-compart
 IAM writes use the `home_region` provider alias because they must target the
 tenancy home region. This does not cause the compartment-scoped policy to be
 placed in the tenancy root.
+
+Set `create_storage_customer_secret_key = false` to use a pre-existing Access
+Key/Secret Key pair. Supply it through `TF_VAR_storage_access_key` and
+`TF_VAR_storage_secret_key`; the corresponding user, policy, and credential
+lifecycle are then external to this stack.
 
 ## OKE operator and service identities
 
@@ -77,7 +85,7 @@ Kubernetes API permissions.
 The OKE cluster principal receives compartment-scoped permission to create and
 delete its internal Network Load Balancer and use the VCN resources needed by
 the cloud controller. These policies are required even when
-`create_storage_identity = false`.
+`create_storage_customer_secret_key = false`.
 
 ## OCI IAM Identity Domains SSO
 
@@ -91,13 +99,14 @@ The stack creates no SSO users. Existing users are added to the generated role
 groups by an identity-domain administrator. See [OCI SSO](sso.md) for the
 group-to-Orthanc-role mapping and lifecycle behavior.
 
-### Existing identity
+### Externally managed Customer Secret Key
 
 For a compartment-scoped deployment:
 
-1. Have a tenancy administrator create a dedicated user and Customer Secret Key.
-2. Grant that user the two bucket-scoped statements above.
-3. Set `create_storage_identity = false`.
+1. Select an existing user and Customer Secret Key whose secret is still
+   available to the deployment operator.
+2. Grant that user the two bucket-scoped statements above outside this stack.
+3. Set `create_storage_customer_secret_key = false`.
 4. Pass `storage_access_key` and `storage_secret_key` as sensitive CI or Resource
    Manager variables.
 

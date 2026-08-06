@@ -9,8 +9,23 @@ locals {
     var.postgres_admin_password,
     random_password.postgres.result,
   )
-  storage_access_key         = var.create_storage_identity ? oci_identity_customer_secret_key.orthanc[0].id : var.storage_access_key
-  storage_secret_key         = var.create_storage_identity ? oci_identity_customer_secret_key.orthanc[0].key : var.storage_secret_key
+  storage_user_matches = var.create_storage_customer_secret_key ? (
+    data.oci_identity_users.storage_user[0].users
+  ) : []
+  storage_user_id = try(
+    one(local.storage_user_matches).id,
+    "ocid1.user.oc1..missing",
+  )
+  storage_user_can_use_customer_secret_keys = try(
+    one(local.storage_user_matches).capabilities[0].can_use_customer_secret_keys,
+    false,
+  )
+  storage_access_key = var.create_storage_customer_secret_key ? (
+    oci_identity_customer_secret_key.orthanc[0].id
+  ) : var.storage_access_key
+  storage_secret_key = var.create_storage_customer_secret_key ? (
+    oci_identity_customer_secret_key.orthanc[0].key
+  ) : var.storage_secret_key
   keycloak_database_password = random_password.keycloak_database.result
   keycloak_admin_password    = random_password.keycloak_admin.result
   auth_service_password      = random_password.auth_service.result
@@ -576,10 +591,17 @@ resource "random_password" "tenant_test_user" {
 check "storage_credentials" {
   assert {
     condition = (
-      var.create_storage_identity ||
-      (var.storage_access_key != null && var.storage_secret_key != null)
+      (
+        var.create_storage_customer_secret_key &&
+        var.storage_user_email != null
+      ) ||
+      (
+        !var.create_storage_customer_secret_key &&
+        var.storage_access_key != null &&
+        var.storage_secret_key != null
+      )
     )
-    error_message = "Set both storage_access_key and storage_secret_key when create_storage_identity is false."
+    error_message = "Set storage_user_email when create_storage_customer_secret_key is true, or set both storage_access_key and storage_secret_key when it is false."
   }
 }
 

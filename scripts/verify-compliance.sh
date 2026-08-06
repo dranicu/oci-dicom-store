@@ -10,10 +10,12 @@ admin_token=""
 cleanup() {
   if [[ -n "${admin_token}" ]]; then
     api_endpoint="$(terraform -chdir="${terraform_dir}" output -raw api_endpoint 2>/dev/null || true)"
-    for study_id in "${cleanup_studies[@]}"; do
-      curl --silent --show-error -H "Authorization: Bearer ${admin_token}" \
-        -X DELETE "${api_endpoint}/studies/${study_id}" >/dev/null || true
-    done
+    if ((${#cleanup_studies[@]} > 0)); then
+      for study_id in "${cleanup_studies[@]}"; do
+        curl --silent --show-error -H "Authorization: Bearer ${admin_token}" \
+          -X DELETE "${api_endpoint}/studies/${study_id}" >/dev/null || true
+      done
+    fi
   fi
   rm -rf "${temporary_dir}"
 }

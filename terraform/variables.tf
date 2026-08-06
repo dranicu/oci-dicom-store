@@ -610,38 +610,38 @@ variable "object_storage_bucket_name" {
   }
 }
 
-variable "create_storage_identity" {
-  description = "Create a dedicated OCI IAM user, group, policy, and Customer Secret Key for Orthanc."
+variable "create_storage_customer_secret_key" {
+  description = "Create a stack-managed Customer Secret Key, group membership, and bucket policy for an existing OCI IAM user selected by storage_user_email."
   type        = bool
   default     = true
 }
 
-variable "storage_identity_email" {
-  description = "Unique primary email for the generated OCI IAM service user. Required by identity domains when create_storage_identity is true."
+variable "storage_user_email" {
+  description = "Email address of exactly one existing OCI IAM user that will own the stack-managed Customer Secret Key."
   type        = string
   default     = null
 
   validation {
     condition = (
-      var.storage_identity_email == null ||
+      var.storage_user_email == null ||
       can(regex(
         "^[^[:space:]@]+@[^[:space:]@]+\\.[^[:space:]@]+$",
-        var.storage_identity_email,
+        var.storage_user_email,
       ))
     )
-    error_message = "storage_identity_email must be a syntactically valid email address."
+    error_message = "storage_user_email must be a syntactically valid email address."
   }
 }
 
 variable "storage_access_key" {
-  description = "Existing OCI Customer Secret Key access key. Required when create_storage_identity is false."
+  description = "Existing OCI Customer Secret Key access key. Required when create_storage_customer_secret_key is false."
   type        = string
   default     = null
   sensitive   = true
 }
 
 variable "storage_secret_key" {
-  description = "Existing OCI Customer Secret Key secret. Required when create_storage_identity is false."
+  description = "Existing OCI Customer Secret Key secret. Required when create_storage_customer_secret_key is false."
   type        = string
   default     = null
   sensitive   = true

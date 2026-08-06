@@ -146,6 +146,25 @@ output "s3_compatibility_endpoint" {
   value       = local.s3_compatibility_endpoint
 }
 
+output "storage_identity" {
+  description = "Existing OCI IAM user and stack-owned access resources used for S3-compatible Object Storage."
+  value = var.create_storage_customer_secret_key ? {
+    user_email                       = var.storage_user_email
+    user_id                          = local.storage_user_id
+    user_managed_by_stack            = false
+    group_id                         = oci_identity_group.orthanc[0].id
+    customer_secret_key_display_name = oci_identity_customer_secret_key.orthanc[0].display_name
+    customer_secret_key_managed      = true
+    } : {
+    user_email                       = null
+    user_id                          = null
+    user_managed_by_stack            = false
+    group_id                         = null
+    customer_secret_key_display_name = null
+    customer_secret_key_managed      = false
+  }
+}
+
 output "oke_cluster_id" {
   description = "OKE cluster OCID."
   value       = oci_containerengine_cluster.orthanc.id
@@ -215,6 +234,8 @@ output "deployment_summary" {
     bucket_name            = oci_objectstorage_bucket.dicom.name
     namespace              = data.oci_objectstorage_namespace.this.namespace
     s3_endpoint            = local.s3_compatibility_endpoint
+    storage_user_email     = var.create_storage_customer_secret_key ? var.storage_user_email : null
+    storage_user_managed   = false
     oke_cluster_id         = oci_containerengine_cluster.orthanc.id
     oke_node_pool_id       = oci_containerengine_node_pool.orthanc.id
     oke_kubernetes_version = var.oke_kubernetes_version

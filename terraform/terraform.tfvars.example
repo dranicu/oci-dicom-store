@@ -69,9 +69,12 @@ enable_tenant_test_users = false
 # Optional: browsers need explicit CORS origins. Non-browser DICOMweb clients do not.
 # cors_allowed_origins = ["https://viewer.example.org"]
 
-# If the deploying principal cannot create tenancy-level users/groups/policies,
-# set this to false and supply an existing OCI Customer Secret Key pair.
-storage_identity_email = "oci-dicom-service@example.org"
-# create_storage_identity = false
-# storage_access_key       = "replace_me"
-# storage_secret_key       = "replace_me"
+# Existing OCI IAM user that will own the stack-specific Customer Secret Key.
+# Terraform does not create, update, or delete this user. The selected user
+# must be unique by email and have the Customer Secret Key capability enabled.
+storage_user_email = "existing.user@example.org"
+
+# Alternatively, prevent Terraform from creating a Customer Secret Key and
+# supply an existing pair through TF_VAR_storage_access_key and
+# TF_VAR_storage_secret_key instead of storing secrets in this file.
+# create_storage_customer_secret_key = false

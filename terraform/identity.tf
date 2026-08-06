@@ -1,41 +1,26 @@
-data "oci_identity_users" "storage_email" {
-  count    = var.create_storage_identity ? 1 : 0
+data "oci_identity_users" "storage_user" {
+  count    = var.create_storage_customer_secret_key ? 1 : 0
   provider = oci.home
 
   compartment_id = var.tenancy_id
 
   filter {
     name   = "email"
-    values = [coalesce(var.storage_identity_email, "unset@example.invalid")]
+    values = [coalesce(var.storage_user_email, "unset@example.invalid")]
   }
 }
 
-resource "oci_identity_user" "orthanc" {
-  count    = var.create_storage_identity ? 1 : 0
+data "oci_identity_customer_secret_keys" "storage_user" {
+  count = var.create_storage_customer_secret_key ? (
+    length(data.oci_identity_users.storage_user[0].users) == 1 ? 1 : 0
+  ) : 0
   provider = oci.home
 
-  compartment_id = var.tenancy_id
-  name           = "${local.resource_name}-storage"
-  description    = "Service identity for ${local.resource_name} Orthanc Object Storage access"
-  email          = var.storage_identity_email
-  freeform_tags  = local.tags
-
-  lifecycle {
-    precondition {
-      condition = (
-        var.storage_identity_email != null &&
-        alltrue([
-          for user in data.oci_identity_users.storage_email[0].users :
-          user.name == "${local.resource_name}-storage"
-        ])
-      )
-      error_message = "storage_identity_email must be set and cannot belong to another OCI IAM user. Use a unique, monitored address or alias."
-    }
-  }
+  user_id = local.storage_user_id
 }
 
 resource "oci_identity_group" "orthanc" {
-  count    = var.create_storage_identity ? 1 : 0
+  count    = var.create_storage_customer_secret_key ? 1 : 0
   provider = oci.home
 
   compartment_id = var.tenancy_id
@@ -44,15 +29,30 @@ resource "oci_identity_group" "orthanc" {
 }
 
 resource "oci_identity_user_group_membership" "orthanc" {
-  count    = var.create_storage_identity ? 1 : 0
+  count    = var.create_storage_customer_secret_key ? 1 : 0
   provider = oci.home
 
   group_id = oci_identity_group.orthanc[0].id
-  user_id  = oci_identity_user.orthanc[0].id
+  user_id  = local.storage_user_id
+
+  lifecycle {
+    precondition {
+      condition     = length(local.storage_user_matches) == 1
+      error_message = "storage_user_email must identify exactly one existing OCI IAM user in the tenancy."
+    }
+
+    precondition {
+      condition = (
+        length(local.storage_user_matches) != 1 ||
+        local.storage_user_can_use_customer_secret_keys
+      )
+      error_message = "The OCI IAM user selected by storage_user_email cannot use Customer Secret Keys."
+    }
+  }
 }
 
 resource "oci_identity_policy" "orthanc_storage" {
-  count    = var.create_storage_identity ? 1 : 0
+  count    = var.create_storage_customer_secret_key ? 1 : 0
   provider = oci.home
 
   compartment_id = var.compartment_id
@@ -66,11 +66,24 @@ resource "oci_identity_policy" "orthanc_storage" {
 }
 
 resource "oci_identity_customer_secret_key" "orthanc" {
-  count    = var.create_storage_identity ? 1 : 0
+  count    = var.create_storage_customer_secret_key ? 1 : 0
   provider = oci.home
 
-  user_id      = oci_identity_user.orthanc[0].id
+  user_id      = local.storage_user_id
   display_name = "${local.resource_name}-orthanc-s3"
+
+  lifecycle {
+    precondition {
+      condition = length(data.oci_identity_customer_secret_keys.storage_user) == 1 ? (
+        length(data.oci_identity_customer_secret_keys.storage_user[0].customer_secret_keys) < 2 ||
+        anytrue([
+          for key in data.oci_identity_customer_secret_keys.storage_user[0].customer_secret_keys :
+          key.display_name == "${local.resource_name}-orthanc-s3"
+        ])
+      ) : false
+      error_message = "The OCI IAM user selected by storage_user_email already has two Customer Secret Keys. Delete or reuse one before applying."
+    }
+  }
 
   depends_on = [
     oci_identity_user_group_membership.orthanc,
