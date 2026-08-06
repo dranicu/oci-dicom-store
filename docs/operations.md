@@ -237,4 +237,10 @@ pod was replaced. It does not delete a study or any OCI resource.
    remaining resources. An active retention rule can still block deletion.
 7. Use `make destroy-purge-auto` only in controlled automation where that
    irreversible deletion has already been approved.
-8. Retain the final Terraform and OCI CLI output as cleanup evidence.
+8. The destroy workflow automatically retries recognized transient OCI endpoint
+   DNS failures during init, planning, targeted cleanup, and final destruction.
+   It does not retry Terraform configuration, IAM, quota, or service errors.
+   Defaults can be adjusted with `TERRAFORM_NETWORK_RETRY_ATTEMPTS` and
+   `TERRAFORM_NETWORK_RETRY_DELAY_SECONDS` when a controlled runner has a slow
+   corporate or VPN resolver.
+9. Retain the final Terraform and OCI CLI output as cleanup evidence.

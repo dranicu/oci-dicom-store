@@ -384,6 +384,12 @@ OCI refuses both grant revocation from an inactive app and deletion of an
 active app. It next tears down OKE, removes the exact Kubernetes-managed NLB
 that owns the reserved gateway address, and lets Terraform delete the remaining
 resources. This ordering is retry-safe after a partially completed destroy.
+Terraform init, destroy planning, targeted cleanup, and final destruction retry
+only recognized transient OCI DNS-resolution failures. The defaults are six
+attempts with an increasing delay; controlled automation can override them with
+`TERRAFORM_NETWORK_RETRY_ATTEMPTS` and
+`TERRAFORM_NETWORK_RETRY_DELAY_SECONDS`. Configuration, permission, quota, and
+service errors fail immediately and remain visible.
 
 ## Reference implementation notes
 

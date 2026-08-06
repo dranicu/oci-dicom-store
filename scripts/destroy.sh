@@ -6,6 +6,8 @@ terraform_dir="${project_dir}/terraform"
 auto_approve="false"
 purge_bucket="false"
 destroy_plan=""
+terraform_network_retry_attempts="${TERRAFORM_NETWORK_RETRY_ATTEMPTS:-6}"
+terraform_network_retry_delay="${TERRAFORM_NETWORK_RETRY_DELAY_SECONDS:-10}"
 
 usage() {
   cat <<'USAGE'
@@ -15,6 +17,10 @@ By default, Object Storage data is preserved and OCI rejects deletion of a
 non-empty bucket. --purge-bucket permanently deletes the bucket, every current
 and versioned object, pre-authenticated request, replication policy, and
 uncommitted multipart upload before Terraform destroys the remaining stack.
+
+Terraform operations retry transient OCI endpoint DNS failures six times by
+default. Override with TERRAFORM_NETWORK_RETRY_ATTEMPTS and
+TERRAFORM_NETWORK_RETRY_DELAY_SECONDS.
 USAGE
 }
 
@@ -38,8 +44,62 @@ while (($#)); do
   shift
 done
 
+[[ "${terraform_network_retry_attempts}" =~ ^[1-9][0-9]*$ ]] || {
+  printf 'TERRAFORM_NETWORK_RETRY_ATTEMPTS must be a positive integer.\n' >&2
+  exit 2
+}
+[[ "${terraform_network_retry_delay}" =~ ^[1-9][0-9]*$ ]] || {
+  printf 'TERRAFORM_NETWORK_RETRY_DELAY_SECONDS must be a positive integer.\n' >&2
+  exit 2
+}
+
+terraform_with_network_retry() {
+  local attempt=1
+  local exit_code=0
+  local retry_log
+  local wait_seconds
+
+  retry_log="$(mktemp "${TMPDIR:-/tmp}/oci-dicom-terraform-retry.XXXXXX")"
+
+  while ((attempt <= terraform_network_retry_attempts)); do
+    set +e
+    terraform "$@" 2>&1 | tee "${retry_log}"
+    exit_code="${PIPESTATUS[0]}"
+    set -e
+
+    if ((exit_code == 0)); then
+      rm -f "${retry_log}"
+      return 0
+    fi
+
+    if ! grep -Eqi \
+      'dial tcp[^:]*: lookup .*: (no such host|server misbehaving)|temporary failure in name resolution|could not resolve host' \
+      "${retry_log}"; then
+      rm -f "${retry_log}"
+      return "${exit_code}"
+    fi
+
+    if ((attempt == terraform_network_retry_attempts)); then
+      printf 'Terraform still cannot resolve an OCI endpoint after %s attempts. Check the local DNS/VPN resolver and rerun; the destroy workflow is resumable.\n' \
+        "${terraform_network_retry_attempts}" >&2
+      rm -f "${retry_log}"
+      return "${exit_code}"
+    fi
+
+    wait_seconds=$((terraform_network_retry_delay * attempt))
+    ((wait_seconds > 60)) && wait_seconds=60
+    printf 'Transient OCI endpoint DNS failure during terraform %s (attempt %s/%s); retrying in %ss...\n' \
+      "$1" "${attempt}" "${terraform_network_retry_attempts}" "${wait_seconds}" >&2
+    sleep "${wait_seconds}"
+    attempt=$((attempt + 1))
+  done
+
+  rm -f "${retry_log}"
+  return "${exit_code}"
+}
+
 cd "${terraform_dir}"
-terraform init
+terraform_with_network_retry init
 
 for command_name in jq; do
   if ! command -v "${command_name}" >/dev/null 2>&1; then
@@ -50,7 +110,7 @@ done
 
 destroy_plan="$(mktemp "${TMPDIR:-/tmp}/oci-dicom-destroy.XXXXXX")"
 trap 'rm -f "${destroy_plan}"' EXIT
-terraform plan -destroy -out="${destroy_plan}"
+terraform_with_network_retry plan -destroy -out="${destroy_plan}"
 plan_json="$(terraform show -json "${destroy_plan}")"
 
 resource_before() {
@@ -207,7 +267,7 @@ if [[ "${sso_app_before}" != "null" ]]; then
   if ((sso_grant_count > 0)); then
     printf 'Revoking %s OCI Identity Domains grants while the app is active...\n' \
       "${sso_grant_count}"
-    terraform destroy -auto-approve -target=oci_identity_domains_grant.orthanc_sso
+    terraform_with_network_retry destroy -auto-approve -target=oci_identity_domains_grant.orthanc_sso
   fi
 
   if [[ "${sso_app_present}" == "true" && "${sso_app_active}" == "true" ]]; then
@@ -241,7 +301,7 @@ oke_targets=()
 [[ "${oke_cluster_before}" != "null" ]] && oke_targets+=('-target=oci_containerengine_cluster.orthanc')
 if ((${#oke_targets[@]})); then
   printf 'Destroying OKE before cleaning its Kubernetes-managed Network Load Balancer...\n'
-  terraform destroy -auto-approve "${oke_targets[@]}"
+  terraform_with_network_retry destroy -auto-approve "${oke_targets[@]}"
 fi
 
 if [[ "${private_ip_before}" != "null" ]]; then
@@ -280,4 +340,4 @@ if [[ "${private_ip_before}" != "null" ]]; then
   fi
 fi
 
-terraform destroy -auto-approve
+terraform_with_network_retry destroy -auto-approve
