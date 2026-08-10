@@ -12,6 +12,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
@@ -24,4 +25,5 @@ jobs:
       - name: Validate
         env:
           TF_VAR_ssh_public_key_path: /tmp/oci-dicom-validation.pub
+          VALIDATION_TEST_TIMEOUT_SECONDS: 120
         run: scripts/validate.sh
