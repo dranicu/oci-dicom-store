@@ -41,7 +41,7 @@ while (($#)); do
   shift
 done
 
-for command_name in terraform jq oci curl base64; do
+for command_name in terraform jq oci curl; do
   command -v "${command_name}" >/dev/null 2>&1 || {
     printf 'Required command is missing: %s\n' "${command_name}" >&2
     exit 1
@@ -49,22 +49,32 @@ for command_name in terraform jq oci curl base64; do
 done
 
 fastconnect_output="$(terraform -chdir="${terraform_dir}" output -json fastconnect_status)"
+acceptance_context="$(terraform -chdir="${terraform_dir}" output -json acceptance_context)"
+oci_args=(--region "$(jq -er '.region' <<<"${acceptance_context}")")
+case "$(jq -er '.auth' <<<"${acceptance_context}")" in
+  APIKey) oci_args+=(--profile "$(jq -er '.profile' <<<"${acceptance_context}")" --auth api_key) ;;
+  SecurityToken) oci_args+=(--profile "$(jq -er '.profile' <<<"${acceptance_context}")" --auth security_token) ;;
+  InstancePrincipal) oci_args+=(--auth instance_principal) ;;
+  ResourcePrincipal) oci_args+=(--auth resource_principal) ;;
+  OKEWorkloadIdentity) oci_args+=(--auth oke_workload_identity) ;;
+  *) printf 'Unsupported OCI authentication mode.\n' >&2; exit 1 ;;
+esac
 virtual_circuit_id="$(jq -r '.virtual_circuit_id // empty' <<<"${fastconnect_output}")"
 [[ -n "${virtual_circuit_id}" ]] || {
   printf 'FastConnect is not enabled in this Terraform state.\n' >&2
   exit 1
 }
 
-virtual_circuit_json="$(oci network virtual-circuit get \
+virtual_circuit_json="$(oci "${oci_args[@]}" network virtual-circuit get \
   --virtual-circuit-id "${virtual_circuit_id}" \
   --output json)"
 
 jq -r '
   .data |
   "Virtual circuit: \(.id)\n" +
-  "Lifecycle: \(.\"lifecycle-state\")\n" +
-  "Provider: \(.\"provider-state\")\n" +
-  "BGP IPv4: \(.\"bgp-session-state\")"
+  "Lifecycle: \(.["lifecycle-state"])\n" +
+  "Provider: \(.["provider-state"])\n" +
+  "BGP IPv4: \(.["bgp-session-state"])"
 ' <<<"${virtual_circuit_json}"
 
 if ! jq -e '

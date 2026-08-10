@@ -324,6 +324,18 @@ variable "keycloak_image" {
   }
 }
 
+variable "keycloak_admin_password" {
+  description = "Optional existing Keycloak master-realm administrator password. A strong bootstrap value is generated when null."
+  type        = string
+  default     = null
+  sensitive   = true
+
+  validation {
+    condition     = var.keycloak_admin_password == null || length(var.keycloak_admin_password) >= 16
+    error_message = "keycloak_admin_password must be at least 16 characters when provided."
+  }
+}
+
 variable "oci_identity_domain_sso" {
   description = "OCI IAM Identity Domains OIDC federation for Orthanc. Set to null to retain local Keycloak authentication only."
   type = object({
@@ -346,11 +358,17 @@ variable "oci_identity_domain_sso" {
         toset(["orthanc-viewer", "orthanc-uploader", "orthanc-editor", "orthanc-admin"]) &&
         alltrue([
           for group_name in values(var.oci_identity_domain_sso.group_names) :
-          length(trimspace(group_name)) >= 3
-        ])
+          length(trimspace(group_name)) >= 3 &&
+          length(group_name) <= 160 &&
+          group_name == trimspace(group_name)
+        ]) &&
+        length(distinct([
+          for group_name in values(var.oci_identity_domain_sso.group_names) :
+          lower(group_name)
+        ])) == 4
       )
     )
-    error_message = "oci_identity_domain_sso must use an identity-domain OCID and define non-empty group names for all four Orthanc roles."
+    error_message = "oci_identity_domain_sso must use an identity-domain OCID and define four unique, trimmed 3-160 character group names for the Orthanc roles."
   }
 }
 
@@ -384,6 +402,17 @@ variable "orthanc_replicas" {
   validation {
     condition     = var.orthanc_replicas >= 1 && var.orthanc_replicas <= 6
     error_message = "orthanc_replicas must be between 1 and 6."
+  }
+}
+
+variable "keycloak_replicas" {
+  description = "Number of Keycloak replicas sharing the managed PostgreSQL database."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.keycloak_replicas >= 2 && var.keycloak_replicas <= 6
+    error_message = "keycloak_replicas must be between 2 and 6 so authentication has no single-pod failure point."
   }
 }
 
@@ -479,16 +508,25 @@ variable "orthanc_tenants" {
   }
 
   validation {
-    condition = length(var.orthanc_tenants) >= 2 && alltrue([
-      for tenant_key, tenant in var.orthanc_tenants :
-      can(regex("^[a-z][a-z0-9-]{1,30}[a-z0-9]$", tenant_key)) &&
-      length(trimspace(tenant.display_name)) >= 3 &&
-      can(regex("^[a-z][a-z0-9-]{1,62}[a-z0-9]$", coalesce(tenant.label, "tenant-${tenant_key}")))
-      ]) && length(distinct([
+    condition = (
+      length(var.orthanc_tenants) >= 2 &&
+      alltrue([
+        for tenant_key, tenant in var.orthanc_tenants :
+        can(regex("^[a-z][a-z0-9-]{1,30}[a-z0-9]$", tenant_key)) &&
+        length(trimspace(tenant.display_name)) >= 3 &&
+        length(tenant.display_name) <= 120 &&
+        tenant.display_name == trimspace(tenant.display_name) &&
+        can(regex("^[a-z][a-z0-9-]{1,62}[a-z0-9]$", coalesce(tenant.label, "tenant-${tenant_key}")))
+      ]) &&
+      length(distinct([
         for tenant_key, tenant in var.orthanc_tenants :
         coalesce(tenant.label, "tenant-${tenant_key}")
-    ])) == length(var.orthanc_tenants)
-    error_message = "Define at least two tenants. Tenant keys and labels must be unique lowercase slugs; display names must contain at least three characters."
+      ])) == length(var.orthanc_tenants) &&
+      length(distinct([
+        for tenant_key, tenant in var.orthanc_tenants : lower(tenant.display_name)
+      ])) == length(var.orthanc_tenants)
+    )
+    error_message = "Define at least two tenants. Tenant keys and labels must be unique lowercase slugs; display names must be trimmed, unique, and contain 3-120 characters."
   }
 }
 

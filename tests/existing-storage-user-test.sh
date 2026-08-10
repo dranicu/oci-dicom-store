@@ -18,5 +18,10 @@ grep -Fq 'variable "storage_user_email"' "${variables_file}"
 grep -Fq 'one(local.storage_user_matches).id' "${locals_file}"
 grep -Fq 'type == "oci_identity_user"' "${deploy_file}"
 grep -Fq 'wait-for-storage-credentials.sh' "${deploy_file}"
+grep -Fq 'storage_customer_secret_key_capacity.value.existing' "${deploy_file}"
+if grep -Fq 'key.display_name ==' "${identity_file}"; then
+  printf 'An orphaned display name must not bypass Customer Secret Key capacity checks.\n' >&2
+  exit 1
+fi
 
 printf 'Storage uses one existing OCI IAM user and guards against managed-user creation.\n'

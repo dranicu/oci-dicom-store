@@ -72,19 +72,6 @@ resource "oci_identity_customer_secret_key" "orthanc" {
   user_id      = local.storage_user_id
   display_name = "${local.resource_name}-orthanc-s3"
 
-  lifecycle {
-    precondition {
-      condition = length(data.oci_identity_customer_secret_keys.storage_user) == 1 ? (
-        length(data.oci_identity_customer_secret_keys.storage_user[0].customer_secret_keys) < 2 ||
-        anytrue([
-          for key in data.oci_identity_customer_secret_keys.storage_user[0].customer_secret_keys :
-          key.display_name == "${local.resource_name}-orthanc-s3"
-        ])
-      ) : false
-      error_message = "The OCI IAM user selected by storage_user_email already has two Customer Secret Keys. Delete or reuse one before applying."
-    }
-  }
-
   depends_on = [
     oci_identity_user_group_membership.orthanc,
     oci_identity_policy.orthanc_storage,

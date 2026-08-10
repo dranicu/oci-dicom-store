@@ -3,6 +3,7 @@ set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 terraform_dir="${project_dir}/terraform"
+source "${project_dir}/scripts/ssh-trust.sh"
 private_key="${BASTION_SSH_PRIVATE_KEY_FILE:-}"
 auto_approve=false
 backup_id=""
@@ -10,7 +11,6 @@ restored_db_id=""
 backup_name=""
 restore_name=""
 temporary_dir=""
-known_hosts_file=""
 bastion_ip=""
 compartment_id=""
 
@@ -36,7 +36,7 @@ while (($#)); do
 done
 
 [[ -f "${private_key}" ]] || { printf 'Private key not found: %s\n' "${private_key}" >&2; exit 2; }
-for command_name in terraform oci jq ssh scp; do
+for command_name in terraform oci jq ssh scp grep sed; do
   command -v "${command_name}" >/dev/null 2>&1 || {
     printf 'Required command is missing: %s\n' "${command_name}" >&2
     exit 1
@@ -50,7 +50,7 @@ deployment_name="$(jq -r '.name' <<<"${summary}")"
 db_username="$(terraform -chdir="${terraform_dir}" output -raw postgres_username)"
 db_password="$(terraform -chdir="${terraform_dir}" output -raw postgres_password)"
 temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/oci-dicom-restore.XXXXXX")"
-known_hosts_file="${temporary_dir}/known_hosts"
+oci_dicom_prepare_ssh_trust "${terraform_dir}"
 
 oci_args=(--region "$(jq -r '.region' <<<"${context}")")
 case "$(jq -r '.auth' <<<"${context}")" in
@@ -100,20 +100,51 @@ discover_resource_id() {
   return 1
 }
 
-delete_with_retries() {
+delete_and_wait() {
   local resource_type="$1"
   local resource_id="$2"
   local id_option="$3"
-  local max_wait="$4"
-  for _ in $(seq 1 60); do
-    if oci "${oci_args[@]}" psql "${resource_type}" delete \
-      "${id_option}" "${resource_id}" --force \
-      --wait-for-state SUCCEEDED --wait-for-state FAILED \
-      --max-wait-seconds "${max_wait}" >/dev/null 2>&1; then
+  local timeout_seconds="$4"
+  local error_file="${temporary_dir}/${resource_type}-delete-error.log"
+  local deadline=$((SECONDS + timeout_seconds))
+  local resource_json
+  local lifecycle_state
+
+  if ! oci "${oci_args[@]}" psql "${resource_type}" delete \
+    "${id_option}" "${resource_id}" --force >/dev/null 2>"${error_file}"; then
+    if grep -Eq '(^|[^0-9])404([^0-9]|$)|NotAuthorizedOrNotFound|not found' "${error_file}"; then
       return 0
+    fi
+    printf 'Unable to request deletion of %s %s:\n' \
+      "${resource_type}" "${resource_id}" >&2
+    sed -n '1,20p' "${error_file}" >&2
+    return 1
+  fi
+
+  while ((SECONDS < deadline)); do
+    if resource_json="$(oci "${oci_args[@]}" psql "${resource_type}" get \
+      "${id_option}" "${resource_id}" 2>"${error_file}")"; then
+      lifecycle_state="$(jq -r '.data."lifecycle-state" // "UNKNOWN"' <<<"${resource_json}")"
+      case "${lifecycle_state}" in
+        DELETED) return 0 ;;
+        FAILED)
+          printf '%s %s entered FAILED while deleting.\n' \
+            "${resource_type}" "${resource_id}" >&2
+          return 1
+          ;;
+      esac
+    elif grep -Eq '(^|[^0-9])404([^0-9]|$)|NotAuthorizedOrNotFound|not found' "${error_file}"; then
+      return 0
+    else
+      printf 'Unable to verify deletion of %s %s:\n' \
+        "${resource_type}" "${resource_id}" >&2
+      sed -n '1,20p' "${error_file}" >&2
+      return 1
     fi
     sleep 30
   done
+  printf 'Timed out after %s seconds waiting for %s %s deletion.\n' \
+    "${timeout_seconds}" "${resource_type}" "${resource_id}" >&2
   return 1
 }
 
@@ -124,14 +155,14 @@ cleanup() {
   fi
   if [[ -n "${restored_db_id}" ]]; then
     printf 'Deleting temporary restored database %s...\n' "${restored_db_id}"
-    delete_with_retries db-system "${restored_db_id}" --db-system-id 7200 || cleanup_status=1
+    delete_and_wait db-system "${restored_db_id}" --db-system-id 7200 || cleanup_status=1
   fi
   if [[ -z "${backup_id}" && -n "${backup_name}" ]]; then
     backup_id="$(discover_resource_id lookup_backup_id || true)"
   fi
   if [[ -n "${backup_id}" ]]; then
     printf 'Deleting temporary backup %s...\n' "${backup_id}"
-    delete_with_retries backup "${backup_id}" --backup-id 3600 || cleanup_status=1
+    delete_and_wait backup "${backup_id}" --backup-id 3600 || cleanup_status=1
   fi
   [[ -z "${temporary_dir}" ]] || rm -rf "${temporary_dir}"
   return "${cleanup_status}"
@@ -231,8 +262,7 @@ chmod 600 "${pgpass_file}"
 remote_pgpass="/tmp/oci-dicom-restore-${timestamp}.pgpass"
 ssh_common=(
   -i "${private_key}"
-  -o StrictHostKeyChecking=accept-new
-  -o UserKnownHostsFile="${known_hosts_file}"
+  "${OCI_DICOM_SSH_TRUST_OPTIONS[@]}"
 )
 scp "${ssh_common[@]}" "${pgpass_file}" "opc@${bastion_ip}:${remote_pgpass}"
 table_count="$(ssh "${ssh_common[@]}" "opc@${bastion_ip}" \

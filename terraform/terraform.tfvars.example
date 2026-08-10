@@ -46,9 +46,10 @@ ssh_public_key_path = "~/.ssh/id_rsa.pub"
 # and two database instances. Confirm the selected OKE version is available in
 # the region before deployment.
 oke_kubernetes_version = "v1.35.2"
-oke_node_count = 2
-orthanc_replicas = 2
-postgres_instances = 2
+oke_node_count         = 2
+orthanc_replicas       = 2
+keycloak_replicas      = 2
+postgres_instances     = 2
 
 # Study-level tenant isolation. The label defaults to "tenant-<map-key>".
 orthanc_tenants = {

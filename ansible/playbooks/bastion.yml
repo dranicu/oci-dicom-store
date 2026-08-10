@@ -67,14 +67,11 @@
         cmd: python3 -m venv /opt/oci-dicom/venv
         creates: /opt/oci-dicom/venv/bin/python
 
-    - name: Install OCI and DICOM Python tools
+    - name: Install the OCI CLI
       ansible.builtin.pip:
         executable: /opt/oci-dicom/venv/bin/pip
         name:
-          - oci
           - oci-cli
-          - pydicom
-          - requests
         state: present
 
     - name: Verify the OCI CLI installation
@@ -82,7 +79,6 @@
         argv:
           - /opt/oci-dicom/venv/bin/oci
           - --version
-      register: oci_cli_version
       changed_when: false
 
     - name: Link OCI CLI into the system path

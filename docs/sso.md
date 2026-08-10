@@ -59,10 +59,10 @@ shown by `make get-credentials` and `terraform -chdir=terraform output oci_sso`.
 
 | OCI IAM group | Orthanc role | Effective access |
 | --- | --- | --- |
-| `Orthanc-Viewers` | `orthanc-viewer` | View and download |
-| `Orthanc-Uploaders` | `orthanc-uploader` | View, download, and upload |
-| `Orthanc-Editors` | `orthanc-editor` | Clinical content editing and deletion |
-| `Orthanc-Administrators` | `orthanc-admin` | Full Orthanc administration |
+| `<deployment> - Orthanc-Viewers` | `orthanc-viewer` | View and download |
+| `<deployment> - Orthanc-Uploaders` | `orthanc-uploader` | View, download, and upload |
+| `<deployment> - Orthanc-Editors` | `orthanc-editor` | Clinical content editing and deletion |
+| `<deployment> - Orthanc-Administrators` | `orthanc-admin` | Full Orthanc administration |
 
 Those four roles are platform-wide and therefore cross tenant boundaries. Use
 them only for approved central operations. Normal workforce access uses the
@@ -70,14 +70,18 @@ generated tenant groups, for example:
 
 | Generated OCI IAM group | Keycloak role | Effective access |
 | --- | --- | --- |
-| `Hospital A - Orthanc Viewers` | `tenant-hospital-a-viewer` | View/download studies labeled `tenant-hospital-a` |
-| `Hospital A - Orthanc Uploaders` | `tenant-hospital-a-uploader` | Upload plus view/download that tenant's labeled studies |
-| `Hospital A - Orthanc Editors` | `tenant-hospital-a-editor` | Tenant-scoped clinical operations and deletion |
-| `Hospital A - Orthanc Admins` | `tenant-hospital-a-admin` | Tenant-scoped operations and audit viewing; no study classification |
+| `<deployment> - Hospital A - Orthanc Viewers` | `tenant-hospital-a-viewer` | View/download studies labeled `tenant-hospital-a` |
+| `<deployment> - Hospital A - Orthanc Uploaders` | `tenant-hospital-a-uploader` | Upload plus view/download that tenant's labeled studies |
+| `<deployment> - Hospital A - Orthanc Editors` | `tenant-hospital-a-editor` | Tenant-scoped clinical operations and deletion |
+| `<deployment> - Hospital A - Orthanc Admins` | `tenant-hospital-a-admin` | Tenant-scoped operations and audit viewing; no study classification |
 
-Custom group names are supported through the `group_names` map. All four keys
+Custom group labels are supported through the `group_names` map. Terraform
+prefixes every display name with the unique deployment name so another stack
+or an unrelated identity-domain group cannot satisfy the same claim value. All four keys
 must be present because they are the stable authorization contract consumed by
-the Orthanc authorization service.
+the Orthanc authorization service. Display names are trimmed and must be
+globally unique, case-insensitively, across platform and tenant groups; the
+plan fails before OCI can create an ambiguous claim mapping.
 
 Tenant group names are derived from `orthanc_tenants`; use
 `make get-credentials` or the `tenant_authorization` output for the exact map.
@@ -103,13 +107,16 @@ interactive access.
 - The OCI client secret is sensitive Terraform state and is mounted into
   Keycloak through a Kubernetes Secret, not a ConfigMap.
 - Identity-domain writes happen through the home-region OCI provider.
-- `make verify` checks OCI discovery metadata, the scoped custom claim, every
-  Keycloak role mapper, and the authorization request sent to OCI.
+- Every workload deploy reconciles the existing Keycloak realm, roles, client,
+  stack-managed users, broker, and mappers. `make verify` checks that complete
+  desired state as well as OCI discovery metadata, the custom claim, and the
+  authorization request sent to OCI.
 - Destroy removes the stack-created confidential application, grants, and role
   groups as well as the custom claim. It does not delete existing OCI IAM
   users. Memberships in those stack-created groups disappear with the groups.
-- Setting `oci_identity_domain_sso = null` disables federation on the next
-  fresh deployment. The local Keycloak account remains usable.
+- Setting `oci_identity_domain_sso = null` removes the broker and its managed
+  mappers on the next `make deploy-oke`; no database rebuild is required. The
+  local Keycloak account remains usable.
 
 OCI documents confidential application registration and authorization-code
 flows in [Adding a Confidential Application](https://docs.oracle.com/en-us/iaas/Content/Identity/applications/add-confidential-application.htm)

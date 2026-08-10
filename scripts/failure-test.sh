@@ -3,6 +3,7 @@ set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 terraform_dir="${project_dir}/terraform"
+source "${project_dir}/scripts/ssh-trust.sh"
 private_key="${BASTION_SSH_PRIVATE_KEY_FILE:-}"
 
 usage() {
@@ -55,11 +56,10 @@ token="$(curl --fail --silent --show-error -X POST \
 
 temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/oci-dicom-failure.XXXXXX")"
 trap 'rm -rf "${temporary_dir}"' EXIT
-known_hosts_file="${temporary_dir}/known_hosts"
+oci_dicom_prepare_ssh_trust "${terraform_dir}"
 ssh_common=(
   -i "${private_key}"
-  -o StrictHostKeyChecking=accept-new
-  -o UserKnownHostsFile="${known_hosts_file}"
+  "${OCI_DICOM_SSH_TRUST_OPTIONS[@]}"
   "opc@${bastion_ip}"
 )
 

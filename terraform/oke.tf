@@ -36,6 +36,11 @@ resource "oci_containerengine_cluster" "orthanc" {
       condition     = contains(data.oci_containerengine_cluster_option.versions.kubernetes_versions, var.oke_kubernetes_version)
       error_message = "${var.oke_kubernetes_version} is not offered by OKE in ${var.region}."
     }
+
+    precondition {
+      condition     = local.calico_release != null
+      error_message = "No Oracle-supported Calico policy-only release is mapped for ${var.oke_kubernetes_version}; use a supported Kubernetes 1.33-1.36 release or update the compatibility map."
+    }
   }
 
   timeouts {

@@ -38,7 +38,7 @@ fi
 
 staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/oci-dicom-resource-manager.XXXXXX")"
 trap 'rm -rf "${staging_dir}"' EXIT
-mkdir -p "${staging_dir}/bastion" "${staging_dir}/templates"
+mkdir -p "${staging_dir}/bastion" "${staging_dir}/scripts" "${staging_dir}/templates"
 
 terraform_files=(
   .terraform.lock.hcl
@@ -48,6 +48,7 @@ terraform_files=(
   locals.tf
   networking.tf
   identity.tf
+  sso.tf
   storage.tf
   database.tf
   oke.tf
@@ -66,6 +67,10 @@ cp \
 cp \
   "${terraform_dir}/templates/stack.yaml.tftpl" \
   "${staging_dir}/templates/stack.yaml.tftpl"
+cp \
+  "${project_dir}/scripts/manage-oci-custom-claim.sh" \
+  "${staging_dir}/scripts/manage-oci-custom-claim.sh"
+chmod 700 "${staging_dir}/scripts/manage-oci-custom-claim.sh"
 cp "${public_key_file}" "${staging_dir}/bastion.pub"
 printf 'ssh_public_key_path = "bastion.pub"\n' \
   >"${staging_dir}/ssh-public-key.auto.tfvars"

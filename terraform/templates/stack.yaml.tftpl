@@ -15,8 +15,6 @@ data:
   orthanc.json: ${orthanc_config_b64}
   postgres-username: ${postgres_username_b64}
   postgres-password: ${postgres_password_b64}
-  auth-username: ${orthanc_auth_username_b64}
-  auth-password: ${orthanc_auth_password_b64}
   auth-users.json: ${orthanc_auth_users_b64}
   auth-secret: ${orthanc_auth_secret_b64}
 ---
@@ -84,11 +82,22 @@ spec:
       labels:
         app.kubernetes.io/name: keycloak-database-bootstrap
     spec:
+      automountServiceAccountToken: false
       restartPolicy: OnFailure
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: psql
           image: ${postgres_client_image}
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 70
           env:
             - name: PGHOST
               value: "${postgres_host}"
@@ -132,6 +141,12 @@ spec:
             limits:
               cpu: 250m
               memory: 256Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -141,7 +156,7 @@ metadata:
   labels:
     app.kubernetes.io/name: keycloak
 spec:
-  replicas: 1
+  replicas: ${keycloak_replicas}
   selector:
     matchLabels:
       app.kubernetes.io/name: keycloak
@@ -152,10 +167,28 @@ spec:
       annotations:
         oci-dicom.oracle.com/config-sha256: "${keycloak_config_hash}"
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: keycloak
       initContainers:
         - name: wait-for-database-bootstrap
           image: ${postgres_client_image}
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 70
           env:
             - name: PGHOST
               value: "${postgres_host}"
@@ -178,10 +211,18 @@ spec:
                 | grep -qx 1; do
                 sleep 10
               done
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
       containers:
         - name: keycloak
           image: ${keycloak_image}
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsNonRoot: true
           args: ["start", "--import-realm"]
           env:
             - name: KC_DB
@@ -220,7 +261,9 @@ spec:
             - name: KC_PROXY_HEADERS
               value: xforwarded
             - name: KC_PROXY_TRUSTED_ADDRESSES
-              value: "10.0.0.0/8"
+              value: "${keycloak_trusted_proxy_cidr}"
+            - name: KC_CACHE
+              value: ispn
             - name: KC_HEALTH_ENABLED
               value: "true"
             - name: KC_METRICS_ENABLED
@@ -230,6 +273,10 @@ spec:
               containerPort: 8080
             - name: management
               containerPort: 9000
+            - name: jgroups
+              containerPort: 7800
+            - name: jgroups-fd
+              containerPort: 57800
           readinessProbe:
             httpGet:
               path: /health/ready
@@ -258,6 +305,8 @@ spec:
         - name: realm
           secret:
             secretName: keycloak-realm
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -291,10 +340,29 @@ spec:
       annotations:
         oci-dicom.oracle.com/config-sha256: "${auth_service_config_hash}"
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: orthanc-auth-service
       initContainers:
         - name: wait-for-keycloak
           image: ${nginx_image}
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            runAsGroup: 101
+            runAsNonRoot: true
+            runAsUser: 101
           command: ["/bin/sh", "-ec"]
           args:
             - |
@@ -306,6 +374,13 @@ spec:
         - name: orthanc-auth-service
           image: ${orthanc_auth_service_image}
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsGroup: 65532
+            runAsNonRoot: true
+            runAsUser: 65532
           command: ["python3", "-c"]
           args:
             - |
@@ -314,6 +389,10 @@ spec:
               logging.basicConfig(level=logging.WARNING)
               uvicorn.run("app:app", host="0.0.0.0", port=8000, log_level="warning")
           env:
+            - name: HOME
+              value: /tmp
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
             - name: ENABLE_KEYCLOAK
               value: "true"
             - name: KEYCLOAK_URI
@@ -358,10 +437,14 @@ spec:
             - name: permissions
               mountPath: /etc/orthanc-auth
               readOnly: true
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: permissions
           configMap:
             name: orthanc-authorization
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -400,6 +483,12 @@ spec:
       annotations:
         oci-dicom.oracle.com/config-sha256: "${orthanc_config_hash}"
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
@@ -411,6 +500,13 @@ spec:
         - name: orthanc
           image: ${orthanc_image}
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsGroup: 999
+            runAsNonRoot: true
+            runAsUser: 999
           env:
             - name: ORTHANC_JSON
               valueFrom:
@@ -427,6 +523,8 @@ spec:
               value: "true"
             - name: POSTGRESQL_PLUGIN_ENABLED
               value: "true"
+            - name: FORCE_HOST_ID
+              value: "${orthanc_host_id}"
           ports:
             - name: http
               containerPort: 8042
@@ -448,6 +546,16 @@ spec:
             limits:
               cpu: "2"
               memory: 4Gi
+          volumeMounts:
+            - name: database
+              mountPath: /var/lib/orthanc/db
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: database
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -481,6 +589,10 @@ spec:
       annotations:
         oci-dicom.oracle.com/config-sha256: "${nginx_config_hash}"
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
@@ -497,6 +609,7 @@ spec:
             runAsNonRoot: true
             runAsUser: 101
             runAsGroup: 101
+            readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
           ports:
@@ -530,6 +643,12 @@ spec:
               mountPath: /etc/nginx/nginx.conf
               subPath: nginx.conf
               readOnly: true
+            - name: cache
+              mountPath: /var/cache/nginx
+            - name: run
+              mountPath: /var/run
+            - name: tmp
+              mountPath: /tmp
 %{ if enable_fastconnect ~}
             - name: tls
               mountPath: /etc/nginx/tls
@@ -539,6 +658,12 @@ spec:
         - name: config
           configMap:
             name: dicom-gateway
+        - name: cache
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
 %{ if enable_fastconnect ~}
         - name: tls
           secret:
@@ -579,3 +704,232 @@ spec:
       targetPort: https
       nodePort: 30443
 %{ endif ~}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: ${namespace}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: ${namespace}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak-database-bootstrap
+  namespace: ${namespace}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak-database-bootstrap
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: ${postgres_cidr}
+      ports:
+        - protocol: TCP
+          port: 5432
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: keycloak
+  namespace: ${namespace}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dicom-gateway
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: orthanc-auth-service
+      ports:
+        - protocol: TCP
+          port: 8080
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: keycloak
+      ports:
+        - protocol: TCP
+          port: 7800
+        - protocol: TCP
+          port: 57800
+    - from:
+        - ipBlock:
+            cidr: ${oke_nodes_subnet_cidr}
+      ports:
+        - protocol: TCP
+          port: 9000
+  egress:
+    - to:
+        - ipBlock:
+            cidr: ${postgres_cidr}
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: keycloak
+      ports:
+        - protocol: TCP
+          port: 7800
+        - protocol: TCP
+          port: 57800
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: orthanc-authorization
+  namespace: ${namespace}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: orthanc-auth-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: orthanc
+        - ipBlock:
+            cidr: ${oke_nodes_subnet_cidr}
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: keycloak
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: orthanc
+  namespace: ${namespace}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: orthanc
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dicom-gateway
+        - ipBlock:
+            cidr: ${oke_nodes_subnet_cidr}
+      ports:
+        - protocol: TCP
+          port: 8042
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: orthanc-auth-service
+      ports:
+        - protocol: TCP
+          port: 8000
+    - to:
+        - ipBlock:
+            cidr: ${postgres_cidr}
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dicom-gateway
+  namespace: ${namespace}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: dicom-gateway
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+%{ for cidr in gateway_ingress_cidrs ~}
+        - ipBlock:
+            cidr: ${cidr}
+%{ endfor ~}
+      ports:
+        - protocol: TCP
+          port: 8080
+%{ if enable_fastconnect ~}
+        - protocol: TCP
+          port: 8443
+%{ endif ~}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: orthanc
+      ports:
+        - protocol: TCP
+          port: 8042
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: keycloak
+      ports:
+        - protocol: TCP
+          port: 8080

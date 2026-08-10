@@ -57,6 +57,8 @@ matching the reference architecture's API Gateway flow.
 
 - Terraform 1.6 or newer
 - Ansible Core 2.17 or newer for automatic bastion configuration
+- `jq`, `kubectl`, Ruby (standard YAML parser), `zip`, and `unzip` for the
+  complete static/package validation suite
 - curl with AWS Signature Version 4 support (`curl --aws-sigv4`)
 - OCI credentials configured for Terraform to inspect the selected existing
   storage user and manage its stack-specific Customer Secret Key
@@ -176,6 +178,10 @@ the managed PostgreSQL port. `dicom-env` shows non-secret endpoints, while
 credentials in `/etc/oci-dicom/stack.json`, owned by root with mode `0600`.
 The bastion has no OCI API key copied to it. Its exact instance OCID is the only
 member of a Terraform-managed dynamic group allowed to use this OKE cluster.
+SSH uses persistent trust-on-first-use state in
+`~/.ssh/oci-dicom-known-hosts`, keyed by the bastion instance OCID. A changed
+host key for the same instance is rejected. A replacement instance gets a new
+alias and is enrolled on its first connection.
 
 To rerun the idempotent configuration:
 
@@ -293,6 +299,12 @@ NLB public merely to bypass the limit.
 - PostgreSQL uses regional durable storage and daily backups.
 - Orthanc-to-PostgreSQL uses TLS; public clients use API Gateway HTTPS.
 - NSGs permit only the documented tier-to-tier flows.
+- Calico runs in Oracle's VCN-native policy-only mode. Namespace default-deny
+  policies then admit only DNS, the documented pod-to-pod flows, PostgreSQL,
+  S3/OCI SSO HTTPS, health probes, and approved gateway/FastConnect CIDRs.
+- Application pods do not mount Kubernetes API tokens. They use the runtime
+  default seccomp profile, drop Linux capabilities, and run as non-root;
+  Keycloak and its authorization tier each have two topology-spread replicas.
 - SSH reaches only the bastion, only from approved administrator CIDRs, using
   public-key authentication; the bastion can reach only Orthanc, PostgreSQL,
   DNS, and outbound HTTPS.
@@ -329,8 +341,9 @@ the recommended production runner:
 scripts/package-resource-manager.sh
 ```
 
-The Resource Manager package creates infrastructure and emits the sensitive OKE
-manifest as an output; apply it from the configured bastion with
+The Resource Manager package contains the complete root module, including OCI
+SSO/custom-claim automation, creates infrastructure, and emits the sensitive
+OKE manifest as an output. Apply that output from the configured bastion with
 `scripts/deploy-oke.sh`. The packager reads `~/.ssh/id_rsa.pub` by default and embeds only that public
 key as `bastion.pub`, with an automatic path override for the Resource Manager
 runner. To select another public key:

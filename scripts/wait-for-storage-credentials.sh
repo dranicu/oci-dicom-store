@@ -27,35 +27,11 @@ curl --help all 2>/dev/null | grep -Fq -- '--aws-sigv4' || {
   exit 2
 }
 
-storage_identity="$(terraform -chdir="${terraform_dir}" output -json storage_identity)"
-if [[ "$(jq -r '.customer_secret_key_managed' <<<"${storage_identity}")" != "true" ]]; then
-  printf 'Skipping Object Storage credential readiness: credentials are externally managed.\n'
-  exit 0
-fi
-
-credential_json="$({
-  terraform -chdir="${terraform_dir}" show -json |
-    jq -ce '
-      [
-        .values.root_module.resources[]?
-        | select(
-            .type == "oci_identity_customer_secret_key" and
-            .name == "orthanc" and
-            .values.state == "ACTIVE"
-          )
-        | {
-            access_key: .values.id,
-            secret_key: .values.key
-          }
-      ]
-      | if length == 1 then .[0]
-        else error("expected exactly one active stack-managed Customer Secret Key")
-        end
-    '
-})" || {
-  printf 'Unable to read one active stack-managed Customer Secret Key from Terraform state.\n' >&2
+credential_json="$(terraform -chdir="${terraform_dir}" output -json storage_credentials)" || {
+  printf 'Unable to read the Object Storage credentials from Terraform outputs.\n' >&2
   exit 1
 }
+credential_source="$(jq -r 'if .managed then "stack-managed" else "externally managed" end' <<<"${credential_json}")"
 
 region="$(terraform -chdir="${terraform_dir}" output -json acceptance_context | jq -er '.region')"
 endpoint="$(terraform -chdir="${terraform_dir}" output -raw s3_compatibility_endpoint)"
@@ -76,7 +52,8 @@ trap cleanup EXIT
 printf 'user = "%s:%s"\n' "${access_key}" "${secret_key}" >"${curl_config}"
 unset access_key secret_key credential_json
 
-printf 'Waiting for the Customer Secret Key and bucket policy to reach OCI Object Storage...\n'
+printf 'Waiting for the %s S3 credential and bucket policy to reach OCI Object Storage...\n' \
+  "${credential_source}"
 deadline=$((SECONDS + timeout_seconds))
 attempt=0
 last_http_code="none"

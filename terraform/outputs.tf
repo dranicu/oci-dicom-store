@@ -127,6 +127,12 @@ output "keycloak_admin_password" {
   sensitive   = true
 }
 
+output "keycloak_reconciliation" {
+  description = "Desired Keycloak realm state consumed by the idempotent post-deployment reconciler."
+  value       = local.keycloak_realm
+  sensitive   = true
+}
+
 output "oci_sso" {
   description = "Non-secret OCI IAM Identity Domains SSO configuration and role-group mapping."
   value = {
@@ -163,6 +169,24 @@ output "storage_identity" {
     customer_secret_key_display_name = null
     customer_secret_key_managed      = false
   }
+}
+
+output "storage_credentials" {
+  description = "S3-compatible credentials used by Orthanc; consumed only by deployment readiness automation."
+  value = {
+    access_key = local.storage_access_key
+    secret_key = local.storage_secret_key
+    managed    = var.create_storage_customer_secret_key
+  }
+  sensitive = true
+}
+
+output "storage_customer_secret_key_capacity" {
+  description = "Customer Secret Key slot usage for the selected existing OCI IAM user."
+  value = var.create_storage_customer_secret_key ? {
+    existing = length(data.oci_identity_customer_secret_keys.storage_user[0].customer_secret_keys)
+    maximum  = 2
+  } : null
 }
 
 output "oke_cluster_id" {
@@ -239,11 +263,14 @@ output "deployment_summary" {
     oke_cluster_id         = oci_containerengine_cluster.orthanc.id
     oke_node_pool_id       = oci_containerengine_node_pool.orthanc.id
     oke_kubernetes_version = var.oke_kubernetes_version
+    calico_profile         = local.oke_kubernetes_minor
+    calico_version         = local.calico_release
     oke_node_image         = local.oke_node_image_name
     bastion_kubectl_arch   = local.bastion_kubectl_arch
     nlb_private_ip         = local.nlb_private_ip
     postgres_private_ip    = oci_psql_db_system.orthanc.network_details[0].primary_db_endpoint_private_ip
     replicas               = var.orthanc_replicas
+    keycloak_replicas      = var.keycloak_replicas
   }
 }
 

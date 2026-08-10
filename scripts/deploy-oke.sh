@@ -13,6 +13,7 @@ USAGE
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 terraform_dir="${project_dir}/terraform"
+source "${project_dir}/scripts/ssh-trust.sh"
 private_key="${BASTION_SSH_PRIVATE_KEY_FILE:-}"
 ssh_user="opc"
 umask 077
@@ -62,18 +63,24 @@ private_key="$(cd "$(dirname "${private_key}")" && pwd)/$(basename "${private_ke
 bastion_ip="$(terraform -chdir="${terraform_dir}" output -raw bastion_public_ip)"
 namespace="$(terraform -chdir="${terraform_dir}" output -json deployment_summary | jq -r '.name')"
 expected_nlb_ip="$(terraform -chdir="${terraform_dir}" output -json deployment_summary | jq -r '.nlb_private_ip')"
+calico_profile="$(terraform -chdir="${terraform_dir}" output -json deployment_summary | jq -er '.calico_profile')"
+calico_source_dir="${project_dir}/kubernetes/calico/${calico_profile}"
+[[ -f "${calico_source_dir}/kustomization.yaml" ]] || {
+  printf 'No Calico policy-only profile for Kubernetes minor %s.\n' "${calico_profile}" >&2
+  exit 1
+}
 temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/oci-dicom-oke.XXXXXX")"
 manifest_file="${temporary_dir}/stack.yaml"
 remote_manifest="/tmp/oci-dicom-stack-${namespace}.yaml"
-known_hosts_file="${temporary_dir}/known_hosts"
+remote_calico_dir="/tmp/oci-dicom-calico-${namespace}"
+oci_dicom_prepare_ssh_trust "${terraform_dir}"
 
 cleanup() {
   ssh \
     -i "${private_key}" \
-    -o StrictHostKeyChecking=accept-new \
-    -o UserKnownHostsFile="${known_hosts_file}" \
+    "${OCI_DICOM_SSH_TRUST_OPTIONS[@]}" \
     "${ssh_user}@${bastion_ip}" \
-    "rm -f '${remote_manifest}'" >/dev/null 2>&1 || true
+    "rm -f '${remote_manifest}'; rm -rf '${remote_calico_dir}'" >/dev/null 2>&1 || true
   rm -rf "${temporary_dir}"
 }
 trap cleanup EXIT
@@ -81,23 +88,50 @@ trap cleanup EXIT
 terraform -chdir="${terraform_dir}" output -raw oke_manifest >"${manifest_file}"
 chmod 600 "${manifest_file}"
 
+ssh \
+  -i "${private_key}" \
+  "${OCI_DICOM_SSH_TRUST_OPTIONS[@]}" \
+  "${ssh_user}@${bastion_ip}" \
+  "rm -rf '${remote_calico_dir}'; mkdir -m 700 -p '${remote_calico_dir}/${calico_profile}' '${remote_calico_dir}/policy-only'"
+
 scp \
   -i "${private_key}" \
-  -o StrictHostKeyChecking=accept-new \
-  -o UserKnownHostsFile="${known_hosts_file}" \
+  "${OCI_DICOM_SSH_TRUST_OPTIONS[@]}" \
+  "${project_dir}/kubernetes/calico/policy-only/kustomization.yaml" \
+  "${ssh_user}@${bastion_ip}:${remote_calico_dir}/policy-only/kustomization.yaml"
+
+scp \
+  -i "${private_key}" \
+  "${OCI_DICOM_SSH_TRUST_OPTIONS[@]}" \
+  "${calico_source_dir}/kustomization.yaml" \
+  "${ssh_user}@${bastion_ip}:${remote_calico_dir}/${calico_profile}/kustomization.yaml"
+
+scp \
+  -i "${private_key}" \
+  "${OCI_DICOM_SSH_TRUST_OPTIONS[@]}" \
   "${manifest_file}" \
   "${ssh_user}@${bastion_ip}:${remote_manifest}"
 
 ssh \
   -i "${private_key}" \
-  -o StrictHostKeyChecking=accept-new \
-  -o UserKnownHostsFile="${known_hosts_file}" \
+  "${OCI_DICOM_SSH_TRUST_OPTIONS[@]}" \
   "${ssh_user}@${bastion_ip}" \
-  bash -s -- "${remote_manifest}" "${namespace}" "${expected_nlb_ip}" <<'REMOTE'
+  bash -s -- "${remote_manifest}" "${namespace}" "${expected_nlb_ip}" "${remote_calico_dir}" "${calico_profile}" <<'REMOTE'
 set -euo pipefail
 manifest_file="$1"
 namespace="$2"
 expected_nlb_ip="$3"
+calico_dir="$4"
+calico_profile="$5"
+
+/usr/local/bin/kubectl apply -k "${calico_dir}/${calico_profile}"
+/usr/local/bin/kubectl -n kube-system rollout status \
+  daemonset/calico-node \
+  --timeout=15m
+/usr/local/bin/kubectl -n kube-system rollout status \
+  deployment/calico-kube-controllers \
+  --timeout=15m
+rm -rf "${calico_dir}"
 
 chmod 600 "${manifest_file}"
 bootstrap_job="$(awk '

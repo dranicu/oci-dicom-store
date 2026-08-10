@@ -69,7 +69,9 @@ placed in the tenancy root.
 Set `create_storage_customer_secret_key = false` to use a pre-existing Access
 Key/Secret Key pair. Supply it through `TF_VAR_storage_access_key` and
 `TF_VAR_storage_secret_key`; the corresponding user, policy, and credential
-lifecycle are then external to this stack.
+lifecycle are then external to this stack. The deployment still performs the
+same signed bucket-list readiness request before releasing either credential
+mode to Orthanc.
 
 ## OKE operator and service identities
 

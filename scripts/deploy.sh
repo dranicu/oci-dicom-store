@@ -67,11 +67,31 @@ managed_user_creates="$(
   ] | length' <<<"${plan_json}"
 )"
 
+customer_secret_key_creates="$({
+  jq '[
+    .resource_changes[]?
+    | select(.type == "oci_identity_customer_secret_key")
+    | select(.change.actions == ["create"])
+  ] | length' <<<"${plan_json}"
+})"
+
 if [[ "${managed_user_creates}" != "0" ]]; then
   printf '%s\n' \
     'The Terraform plan unexpectedly creates an OCI IAM user.' \
     'Storage must use the existing user selected by storage_user_email.' >&2
   exit 1
+fi
+
+if [[ "${customer_secret_key_creates}" != "0" ]]; then
+  existing_customer_secret_keys="$(jq -er \
+    '.planned_values.outputs.storage_customer_secret_key_capacity.value.existing' \
+    <<<"${plan_json}")"
+  if ((existing_customer_secret_keys >= 2)); then
+    printf '%s\n' \
+      'The selected existing OCI user already has the maximum two Customer Secret Keys.' \
+      'Delete an unused key or set create_storage_customer_secret_key=false and supply an existing key.' >&2
+    exit 1
+  fi
 fi
 
 if [[ "${mode}" == "plan" ]]; then

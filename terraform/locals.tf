@@ -27,7 +27,7 @@ locals {
     oci_identity_customer_secret_key.orthanc[0].key
   ) : var.storage_secret_key
   keycloak_database_password = random_password.keycloak_database.result
-  keycloak_admin_password    = random_password.keycloak_admin.result
+  keycloak_admin_password    = coalesce(var.keycloak_admin_password, random_password.keycloak_admin.result)
   auth_service_password      = random_password.auth_service.result
   auth_service_secret        = random_password.auth_service_secret.result
 
@@ -62,6 +62,14 @@ locals {
   authorization_service_user = "orthanc-auth"
   oke_node_arch              = length(regexall("\\.A[0-9]+\\.", var.oke_node_shape)) > 0 ? "AARCH64" : "X86_64"
   bastion_kubectl_arch       = length(regexall("\\.A[0-9]+\\.", var.bastion_shape)) > 0 ? "arm64" : "amd64"
+  oke_kubernetes_minor       = join(".", slice(split(".", trimprefix(var.oke_kubernetes_version, "v")), 0, 2))
+  calico_release_by_kubernetes_minor = {
+    "1.33" = "3.30.0"
+    "1.34" = "3.30.3"
+    "1.35" = "3.31.5"
+    "1.36" = "3.32.0"
+  }
+  calico_release = lookup(local.calico_release_by_kubernetes_minor, local.oke_kubernetes_minor, null)
   oke_node_sources = [
     for source in try(data.oci_containerengine_node_pool_option.sources.sources, []) : source
     if source.source_type == "IMAGE" && !strcontains(lower(source.source_name), "gpu")
@@ -320,6 +328,7 @@ locals {
       email           = "${var.orthanc_username}@local.invalid"
       enabled         = true
       emailVerified   = true
+      attributes      = { "oci-dicom-managed" = ["true"] }
       realmRoles      = ["orthanc-admin"]
       requiredActions = []
       credentials = [{
@@ -335,6 +344,7 @@ locals {
         email           = "${tenant_user.username}@local.invalid"
         enabled         = true
         emailVerified   = true
+        attributes      = { "oci-dicom-managed" = ["true"] }
         realmRoles      = [tenant_user.role]
         requiredActions = []
         credentials = [{
@@ -470,6 +480,7 @@ locals {
   oke_manifest = templatefile("${path.module}/templates/stack.yaml.tftpl", {
     namespace                   = local.resource_name
     orthanc_replicas            = var.orthanc_replicas
+    keycloak_replicas           = var.keycloak_replicas
     orthanc_image               = var.orthanc_image
     orthanc_auth_service_image  = var.orthanc_auth_service_image
     keycloak_image              = var.keycloak_image
@@ -485,8 +496,6 @@ locals {
     keycloak_password_b64       = base64encode(local.keycloak_database_password)
     keycloak_admin_username_b64 = base64encode("keycloak-admin")
     keycloak_admin_password_b64 = base64encode(local.keycloak_admin_password)
-    orthanc_auth_username_b64   = base64encode(local.authorization_service_user)
-    orthanc_auth_password_b64   = base64encode(local.auth_service_password)
     orthanc_auth_users_b64      = base64encode(jsonencode({ (local.authorization_service_user) = local.auth_service_password }))
     orthanc_auth_secret_b64     = base64encode(local.auth_service_secret)
     public_base_url             = local.public_base_url
@@ -494,9 +503,19 @@ locals {
     nlb_subnet_id               = oci_core_subnet.application.id
     nlb_nsg_id                  = local.nlb_nsg.id
     compartment_id              = var.compartment_id
-    enable_fastconnect          = var.enable_fastconnect
-    private_ingest_cert_b64     = var.enable_fastconnect ? base64encode(tls_self_signed_cert.private_ingest[0].cert_pem) : ""
-    private_ingest_key_b64      = var.enable_fastconnect ? base64encode(tls_private_key.private_ingest[0].private_key_pem) : ""
+    keycloak_trusted_proxy_cidr = var.oke_pods_subnet_cidr
+    oke_nodes_subnet_cidr       = var.oke_nodes_subnet_cidr
+    postgres_cidr               = "${oci_psql_db_system.orthanc.network_details[0].primary_db_endpoint_private_ip}/32"
+    gateway_ingress_cidrs = distinct(concat([
+      var.gateway_subnet_cidr,
+      var.management_subnet_cidr,
+      var.application_subnet_cidr,
+      var.oke_nodes_subnet_cidr,
+    ], var.enable_fastconnect ? var.fastconnect_on_premises_cidrs : []))
+    orthanc_host_id         = tostring(parseint(substr(sha256(local.resource_name), 0, 7), 16))
+    enable_fastconnect      = var.enable_fastconnect
+    private_ingest_cert_b64 = var.enable_fastconnect ? base64encode(tls_self_signed_cert.private_ingest[0].cert_pem) : ""
+    private_ingest_key_b64  = var.enable_fastconnect ? base64encode(tls_private_key.private_ingest[0].private_key_pem) : ""
     keycloak_bootstrap_id = substr(sha256(join(":", [
       local.keycloak_database_password,
       var.postgres_client_image,

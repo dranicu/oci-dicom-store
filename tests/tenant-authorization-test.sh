@@ -2,8 +2,11 @@
 set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/oci-dicom-tenant-config-test.XXXXXX")"
+trap 'rm -rf "${temporary_dir}"' EXIT
 permissions="$({
   terraform -chdir="${project_dir}/terraform" console \
+    -state="${temporary_dir}/terraform.tfstate" \
     -var-file=terraform.tfvars.example \
     <<<'jsonencode(local.orthanc_role_permissions)'
 } | jq -r)"

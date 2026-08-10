@@ -202,9 +202,10 @@ if [[ "$(jq -r '.enabled' <<<"${sso_json}")" == "true" ]]; then
   OCI_CLI_PROFILE="$(jq -r '.profile' <<<"${acceptance_json}")" \
   OCI_CLI_AUTH="${oci_cli_auth}" \
     "${project_dir}/scripts/manage-oci-custom-claim.sh" check
-  "${project_dir}/scripts/reconcile-keycloak-oci-mappers.sh" --check
   printf 'OK  OCI IAM Identity Domains SSO: %s\n' "${sso_domain_url}"
 fi
+
+"${project_dir}/scripts/reconcile-keycloak-oci-mappers.sh" --check
 
 curl_common=(
   --fail

@@ -7,10 +7,14 @@ locals {
     ResourcePrincipal   = "resource_principal"
     OKEWorkloadIdentity = "oke_workload_identity"
   }
-  oci_sso_roles = local.oci_sso_enabled ? merge(
+  oci_sso_role_labels = local.oci_sso_enabled ? merge(
     var.oci_identity_domain_sso.group_names,
     local.tenant_sso_roles,
   ) : {}
+  oci_sso_roles = {
+    for role, label in local.oci_sso_role_labels :
+    role => "${local.resource_name} - ${label}"
+  }
   oci_sso_domain_url = local.oci_sso_enabled ? trimsuffix(
     data.oci_identity_domain.orthanc_sso[0].url,
     "/",
@@ -22,6 +26,9 @@ locals {
     "${local.public_base_url}/keycloak/realms/orthanc/broker/oci/endpoint"
   ) : null
   oci_sso_group_claim_name = local.oci_sso_enabled ? "${replace(local.resource_name, "-", "_")}_group_names" : null
+  automation_scripts_dir = fileexists("${path.module}/../scripts/manage-oci-custom-claim.sh") ? (
+    "${path.module}/../scripts"
+  ) : "${path.module}/scripts"
 }
 
 data "oci_identity_domain" "orthanc_sso" {
@@ -79,6 +86,13 @@ resource "oci_identity_domains_app" "orthanc_sso" {
 
   lifecycle {
     ignore_changes = [schemas]
+
+    precondition {
+      condition = length(distinct([
+        for group_name in values(local.oci_sso_role_labels) : lower(trimspace(group_name))
+      ])) == length(local.oci_sso_role_labels)
+      error_message = "Every OCI Identity Domains group display name must be globally unique across platform and tenant roles."
+    }
   }
 }
 
@@ -86,11 +100,12 @@ resource "terraform_data" "orthanc_sso_group_claim" {
   for_each = local.oci_sso_enabled ? toset(["enabled"]) : toset([])
 
   input = {
-    endpoint   = local.oci_sso_domain_url
-    claim_name = local.oci_sso_group_claim_name
-    scope      = one(oci_identity_domains_app.orthanc_sso[0].scopes).fqs
-    profile    = var.oci_profile
-    auth       = local.oci_cli_auth[var.oci_auth]
+    endpoint    = local.oci_sso_domain_url
+    claim_name  = local.oci_sso_group_claim_name
+    scope       = one(oci_identity_domains_app.orthanc_sso[0].scopes).fqs
+    profile     = var.oci_profile
+    auth        = local.oci_cli_auth[var.oci_auth]
+    scripts_dir = local.automation_scripts_dir
   }
 
   triggers_replace = [
@@ -101,7 +116,7 @@ resource "terraform_data" "orthanc_sso_group_claim" {
   ]
 
   provisioner "local-exec" {
-    command = "${path.module}/../scripts/manage-oci-custom-claim.sh ensure"
+    command = "${local.automation_scripts_dir}/manage-oci-custom-claim.sh ensure"
     environment = {
       OCI_IDENTITY_DOMAIN_URL = self.input.endpoint
       OCI_CUSTOM_CLAIM_NAME   = self.input.claim_name
@@ -113,7 +128,7 @@ resource "terraform_data" "orthanc_sso_group_claim" {
 
   provisioner "local-exec" {
     when    = destroy
-    command = "${path.module}/../scripts/manage-oci-custom-claim.sh delete"
+    command = "${self.input.scripts_dir}/manage-oci-custom-claim.sh delete"
     environment = {
       OCI_IDENTITY_DOMAIN_URL = self.input.endpoint
       OCI_CUSTOM_CLAIM_NAME   = self.input.claim_name

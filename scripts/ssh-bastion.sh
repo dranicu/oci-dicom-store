@@ -3,6 +3,7 @@ set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 terraform_dir="${project_dir}/terraform"
+source "${project_dir}/scripts/ssh-trust.sh"
 private_key="${BASTION_SSH_PRIVATE_KEY_FILE:-}"
 
 if [[ "${1:-}" == "--private-key" ]]; then
@@ -17,12 +18,10 @@ fi
 }
 
 bastion_ip="$(terraform -chdir="${terraform_dir}" output -raw bastion_public_ip)"
-known_hosts_file="$(mktemp "${TMPDIR:-/tmp}/oci-dicom-known-hosts.XXXXXX")"
-trap 'rm -f "${known_hosts_file}"' EXIT
+oci_dicom_prepare_ssh_trust "${terraform_dir}"
 
 ssh \
   -i "${private_key}" \
-  -o StrictHostKeyChecking=accept-new \
-  -o UserKnownHostsFile="${known_hosts_file}" \
+  "${OCI_DICOM_SSH_TRUST_OPTIONS[@]}" \
   opc@"${bastion_ip}" \
   "$@"

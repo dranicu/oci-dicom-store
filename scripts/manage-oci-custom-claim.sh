@@ -50,7 +50,18 @@ oci_auth="${OCI_CLI_AUTH:-api_key}"
 }
 
 domain_url="${domain_url%/}"
-oci_args=(--profile "${oci_profile}" --auth "${oci_auth}")
+case "${oci_auth}" in
+  api_key|security_token)
+    oci_args=(--profile "${oci_profile}" --auth "${oci_auth}")
+    ;;
+  instance_principal|resource_principal|oke_workload_identity)
+    oci_args=(--auth "${oci_auth}")
+    ;;
+  *)
+    printf 'Unsupported OCI_CLI_AUTH value: %s\n' "${oci_auth}" >&2
+    exit 2
+    ;;
+esac
 
 raw_request() {
   oci raw-request "${oci_args[@]}" "$@"

@@ -13,6 +13,7 @@ USAGE
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 terraform_dir="${project_dir}/terraform"
+source "${project_dir}/scripts/ssh-trust.sh"
 private_key="${BASTION_SSH_PRIVATE_KEY_FILE:-}"
 ssh_user="opc"
 umask 077
@@ -64,7 +65,8 @@ trap 'rm -rf "${temporary_dir}"' EXIT
 chmod 700 "${temporary_dir}"
 
 bastion_ip="$(terraform -chdir="${terraform_dir}" output -raw bastion_public_ip)"
-known_hosts_file="${temporary_dir}/known_hosts"
+oci_dicom_prepare_ssh_trust "${terraform_dir}"
+printf -v ssh_common_args '%q ' "${OCI_DICOM_SSH_TRUST_OPTIONS[@]}"
 inventory_file="${temporary_dir}/inventory.json"
 variables_file="${temporary_dir}/variables.json"
 outputs_file="${temporary_dir}/terraform-outputs.json"
@@ -73,7 +75,7 @@ jq -n \
   --arg host "${bastion_ip}" \
   --arg user "${ssh_user}" \
   --arg key "${private_key}" \
-  --arg known_hosts "${known_hosts_file}" \
+  --arg ssh_common_args "${ssh_common_args% }" \
   '{
     all: {
       children: {
@@ -83,9 +85,7 @@ jq -n \
               ansible_host: $host,
               ansible_user: $user,
               ansible_ssh_private_key_file: $key,
-              ansible_ssh_common_args: (
-                "-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=" + $known_hosts
-              )
+              ansible_ssh_common_args: $ssh_common_args
             }
           }
         }

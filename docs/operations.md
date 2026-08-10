@@ -63,7 +63,9 @@ short-lived security-token session if OCI CLI access is required.
 
 Increase `orthanc_replicas` to add Orthanc pods. They share the PostgreSQL index
 and S3-compatible Object Storage payloads; the Kubernetes Service updates its
-backends automatically. Increase `oke_node_count` when pod capacity requires it.
+backends automatically. `keycloak_replicas` defaults to two and must remain at
+least two; its distributed cache discovers peers through the shared database.
+Increase `oke_node_count` when pod capacity requires it.
 
 Before scaling:
 
@@ -84,8 +86,8 @@ For generated credentials, use Terraform replacement and then run
 ```bash
 terraform -chdir=terraform apply \
   -replace=random_password.postgres \
-  -replace=random_password.keycloak_admin \
   -replace=random_password.keycloak_database \
+  -replace=random_password.orthanc \
   -replace='oci_identity_customer_secret_key.orthanc[0]'
 ```
 
@@ -93,9 +95,17 @@ Review the plan carefully. Replacing the PostgreSQL password may require a
 service-supported password update and coordinated Orthanc replacement. Test
 rotation in a non-production stack first.
 
-Rotate application-user passwords in Keycloak rather than replacing
-`random_password.orthanc`; realm import is bootstrap-only and does not
-overwrite users in an existing realm.
+Do not replace `random_password.keycloak_admin`: Keycloak consumes that value
+only when it bootstraps an empty master realm. To rotate the master
+administrator, change it through the Keycloak Admin API/console first, then set
+the sensitive `keycloak_admin_password` input to that exact value before the
+next deployment. The day-two reconciler uses it to authenticate.
+
+Realm import remains bootstrap-only, but stack configuration no longer depends
+on repeated import. `make deploy-oke` idempotently reconciles realm settings,
+roles, the Orthanc client, managed local users and passwords, and the optional
+OCI identity provider. Replacing `random_password.orthanc`, changing tenants,
+or disabling SSO therefore converges on an existing database.
 
 For an existing storage identity, create a second Customer Secret Key, update
 the sensitive input variables, apply, verify all replicas and Object Storage
