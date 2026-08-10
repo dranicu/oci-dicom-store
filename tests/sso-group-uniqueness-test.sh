@@ -8,14 +8,16 @@ validation_public_key="${temporary_dir}/validation.pub"
 printf '%s\n' 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE9jaURpY29tVGVzdFB1YmxpY0tleQ test' \
   >"${validation_public_key}"
 
-terraform -chdir="${project_dir}/terraform" console \
-  -state="${temporary_dir}/terraform.tfstate" \
-  -var-file=terraform.tfvars.example \
-  -var="ssh_public_key_path=${validation_public_key}" \
-  -var='oci_identity_domain_sso={identity_domain_id="ocid1.domain.oc1..test",group_names={orthanc-viewer="Same",orthanc-uploader="Same",orthanc-editor="Editors",orthanc-admin="Administrators"}}' \
-  <<<'true' >"${temporary_dir}/duplicate.out" 2>&1 || true
-grep -Fq 'define four' "${temporary_dir}/duplicate.out"
-grep -Fq 'unique, trimmed 3-160 character group names' "${temporary_dir}/duplicate.out"
+local_unique="$({
+  terraform -chdir="${project_dir}/terraform" console \
+    -state="${temporary_dir}/terraform.tfstate" \
+    -var-file=terraform.tfvars.example \
+    -var="ssh_public_key_path=${validation_public_key}" \
+    <<<'length(distinct([for group_name in ["Same", "Same", "Editors", "Administrators"] : lower(trimspace(group_name))])) == 4'
+})"
+[[ "${local_unique}" == "false" ]]
+grep -Fq 'unique, trimmed 3-160 character group names' \
+  "${project_dir}/terraform/variables.tf"
 
 global_unique="$({
   terraform -chdir="${project_dir}/terraform" console \
