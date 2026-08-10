@@ -30,7 +30,7 @@ global_unique="$({
     -state="${temporary_dir}/global.tfstate" \
     -var-file=terraform.tfvars.example \
     -var="ssh_public_key_path=${validation_public_key}" \
-    -var='oci_identity_domain_sso={identity_domain_id="ocid1.domain.oc1..test",group_names={orthanc-viewer="Tenant A - Orthanc Viewers",orthanc-uploader="Uploaders",orthanc-editor="Editors",orthanc-admin="Administrators"}}' \
+    -var='oci_identity_domain_sso={identity_domain_id="ocid1.domain.oc1..test",group_names={orthanc-viewer="Hospital A - Orthanc Viewers",orthanc-uploader="Uploaders",orthanc-editor="Editors",orthanc-admin="Administrators"}}' \
     <<<'length(distinct([for group_name in values(local.oci_sso_role_labels) : lower(trimspace(group_name))])) == length(local.oci_sso_role_labels)'
 } | tr -d '\r' | tail -n 1)"
 [[ "${global_unique}" == "false" ]] || {
