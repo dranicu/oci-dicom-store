@@ -4,10 +4,14 @@ set -euo pipefail
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/oci-dicom-tenant-config-test.XXXXXX")"
 trap 'rm -rf "${temporary_dir}"' EXIT
+validation_public_key="${temporary_dir}/validation.pub"
+printf '%s\n' 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE9jaURpY29tVGVzdFB1YmxpY0tleQ test' \
+  >"${validation_public_key}"
 permissions="$({
   terraform -chdir="${project_dir}/terraform" console \
     -state="${temporary_dir}/terraform.tfstate" \
     -var-file=terraform.tfvars.example \
+    -var="ssh_public_key_path=${validation_public_key}" \
     <<<'jsonencode(local.orthanc_role_permissions)'
 } | jq -r)"
 
