@@ -5,7 +5,7 @@ project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 terraform_dir="${project_dir}/terraform"
 
 terraform -chdir="${terraform_dir}" fmt -check -recursive
-terraform -chdir="${terraform_dir}" init -backend=false
+terraform -chdir="${terraform_dir}" init -backend=false -lockfile=readonly
 terraform -chdir="${terraform_dir}" validate
 
 for script_file in "${project_dir}"/scripts/*.sh; do

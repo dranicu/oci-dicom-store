@@ -7,6 +7,17 @@ trap 'rm -rf "${temporary_dir}"' EXIT
 mkdir -p "${temporary_dir}/bin" "${temporary_dir}/home"
 touch "${temporary_dir}/private-key"
 
+file_mode() {
+  local path="$1"
+  local mode
+
+  if mode="$(stat -c '%a' "${path}" 2>/dev/null)"; then
+    printf '%s\n' "${mode}"
+  else
+    stat -f '%Lp' "${path}"
+  fi
+}
+
 cat >"${temporary_dir}/bin/terraform" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
@@ -31,9 +42,24 @@ done
 
 known_hosts="${temporary_dir}/home/.ssh/oci-dicom-known-hosts"
 test -f "${known_hosts}"
-test "$(stat -f '%Lp' "${known_hosts}" 2>/dev/null || stat -c '%a' "${known_hosts}")" = "600"
+test "$(file_mode "${known_hosts}")" = "600"
 test "$(wc -l <"${temporary_dir}/ssh.log" | tr -d ' ')" = "2"
 grep -Fq "UserKnownHostsFile=${known_hosts}" "${temporary_dir}/ssh.log"
 grep -Fq 'HostKeyAlias=oci-dicom-ocid1.instance.test.bastion' "${temporary_dir}/ssh.log"
+
+for stat_style in gnu bsd; do
+  mkdir -p "${temporary_dir}/${stat_style}-bin"
+  cat >"${temporary_dir}/${stat_style}-bin/stat" <<STUB
+#!/usr/bin/env bash
+if [[ "${stat_style}" == "gnu" && "\$1" == "-c" ]] ||
+   [[ "${stat_style}" == "bsd" && "\$1" == "-f" ]]; then
+  printf '600\\n'
+  exit 0
+fi
+exit 1
+STUB
+  chmod 700 "${temporary_dir}/${stat_style}-bin/stat"
+  test "$(PATH="${temporary_dir}/${stat_style}-bin:${PATH}" file_mode "${known_hosts}")" = "600"
+done
 
 printf 'Bastion SSH trust is persistent and pinned to the instance OCID.\n'
