@@ -3,12 +3,13 @@
 This repository is a complete Terraform deployment of the core store in
 Oracle's [cloud-native DICOM reference architecture](https://docs.oracle.com/en/solutions/cloud-native-dicom-on-oci/index.html):
 
-- Orthanc DICOMweb and REST APIs on private OCI Kubernetes Engine (OKE)
+- two or more Orthanc DICOMweb/REST instances on private OCI Kubernetes Engine (OKE)
 - Keycloak plus the official Orthanc authorization service
 - optional OCI IAM Identity Domains SSO for existing workforce accounts
 - platform-wide roles plus study-label-enforced viewer, uploader, editor, and
   administrator roles for every configured tenant
-- OCI Database with PostgreSQL for the Orthanc metadata index
+- OCI Database with PostgreSQL using a primary plus at least one replica node
+  for the Orthanc metadata index
 - private, versioned OCI Object Storage accessed through its S3-compatible API
 - an OKE-managed private Network Load Balancer with a reserved private address
 - a public HTTPS OCI API Gateway facade with CIDR filtering and rate limiting
@@ -38,11 +39,11 @@ flowchart LR
   Bastion --> OKE
   Bastion --> PG
   NLB --> Proxy["OKE gateway"]
-  Proxy --> OKE["Orthanc pods"]
+  Proxy --> OKE["Orthanc<br/>2–6 pods"]
   Proxy --> KC["Keycloak IdP"]
   OKE --> Auth["Orthanc auth service"]
   Auth --> KC
-  OKE --> PG["OCI PostgreSQL<br/>metadata index"]
+  OKE --> PG["OCI PostgreSQL<br/>2–8 nodes, managed failover"]
   KC --> PG
   OKE --> OS["OCI Object Storage<br/>S3-compatible payloads"]
   OnPrem["On-premises network"] -->|"Optional FastConnect<br/>TLS :8443"| NLB
@@ -99,7 +100,7 @@ make destroy
 `make apply` and the bastion targets default to `~/.ssh/id_rsa`. Override the
 key with `PRIVATE_KEY=/absolute/path/to/private_key`. Pass extra Terraform
 planning arguments with `TF_ARGS`, for example
-`make plan TF_ARGS="-var=orthanc_replicas=2"`.
+`make plan TF_ARGS="-var=orthanc_replicas=3 -var=postgres_instances=3"`.
 
 1. Create the input file:
 
@@ -296,7 +297,8 @@ NLB public merely to bypass the limit.
 ## Security and state
 
 - The bucket is private, encrypted at rest by Object Storage, and versioned by default.
-- PostgreSQL uses regional durable storage and daily backups.
+- PostgreSQL uses at least two nodes, regional durable storage, automatic
+  replica promotion on node failure, and daily backups.
 - Orthanc-to-PostgreSQL uses TLS; public clients use API Gateway HTTPS.
 - NSGs permit only the documented tier-to-tier flows.
 - Calico runs in Oracle's VCN-native policy-only mode. Namespace default-deny
@@ -304,7 +306,8 @@ NLB public merely to bypass the limit.
   S3/OCI SSO HTTPS, health probes, and approved gateway/FastConnect CIDRs.
 - Application pods do not mount Kubernetes API tokens. They use the runtime
   default seccomp profile, drop Linux capabilities, and run as non-root;
-  Keycloak and its authorization tier each have two topology-spread replicas.
+  Orthanc runs at least two pods on distinct workers, while Keycloak and its
+  authorization tier each have two topology-spread replicas.
 - SSH reaches only the bastion, only from approved administrator CIDRs, using
   public-key authentication; the bastion can reach only Orthanc, PostgreSQL,
   DNS, and outbound HTTPS.
@@ -414,4 +417,5 @@ stores the index, while the official
 [cloud object storage plugin](https://orthanc.uclouvain.be/book/plugins/object-storage.html)
 uses OCI's
 [S3-compatible Object Storage API](https://docs.oracle.com/en-us/iaas/Content/Object/Tasks/s3compatibleapi.htm)
-for payloads.
+for payloads. The database node topology follows OCI's
+[PostgreSQL high-availability guidance](https://docs.oracle.com/en-us/iaas/Content/postgresql/high-availability.htm).

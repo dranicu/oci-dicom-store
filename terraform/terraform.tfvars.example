@@ -42,9 +42,9 @@ ssh_public_key_path = "~/.ssh/id_rsa.pub"
 # fastconnect_customer_asn            = "64512"
 # fastconnect_is_bfd_enabled          = true
 
-# Recommended production sizing starts with two OKE workers, two Orthanc pods,
-# and two database instances. Confirm the selected OKE version is available in
-# the region before deployment.
+# The enforced minimum is two OKE workers, two Orthanc pods, and two managed
+# PostgreSQL nodes. Confirm the selected OKE version is available in the region
+# before deployment.
 oke_kubernetes_version = "v1.35.2"
 oke_node_count         = 2
 orthanc_replicas       = 2

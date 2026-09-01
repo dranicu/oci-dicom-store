@@ -491,8 +491,9 @@ spec:
           type: RuntimeDefault
       topologySpreadConstraints:
         - maxSkew: 1
+          minDomains: 2
           topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway
+          whenUnsatisfiable: DoNotSchedule
           labelSelector:
             matchLabels:
               app.kubernetes.io/name: orthanc

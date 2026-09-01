@@ -18,8 +18,9 @@ Then review:
 
 - API Gateway access and execution logs in the generated log group
 - `oci_apigateway` `HttpResponses`, `BackendHttpResponses`, and latency metrics
-- OKE node/pod readiness and the `dicom-gateway` Service/NLB state
-- PostgreSQL state and backup history
+- OKE node/pod readiness, including at least two ready Orthanc pods on two
+  workers, and the `dicom-gateway` Service/NLB state
+- PostgreSQL DB-system state, at least two active nodes, and backup history
 - Object Storage object count, size, and version growth
 - OKE managed node-pool lifecycle and Kubernetes deployment rollout state
 
@@ -61,22 +62,32 @@ short-lived security-token session if OCI CLI access is required.
 
 ## Scaling
 
-Increase `orthanc_replicas` to add Orthanc pods. They share the PostgreSQL index
-and S3-compatible Object Storage payloads; the Kubernetes Service updates its
-backends automatically. `keycloak_replicas` defaults to two and must remain at
-least two; its distributed cache discovers peers through the shared database.
-Increase `oke_node_count` when pod capacity requires it.
+`orthanc_replicas` accepts 2–6 pods and `postgres_instances` accepts 2–8 managed
+database nodes. Neither tier permits a single-instance configuration. Orthanc
+pods share the PostgreSQL index and S3-compatible Object Storage payloads; the
+Kubernetes Service updates its backends automatically and required topology
+spread places ready Orthanc pods on at least two workers. The PostgreSQL primary
+endpoint remains the Orthanc read/write target while OCI promotes a replica if
+the primary node fails. The optional reader endpoint is deliberately disabled
+because Orthanc index operations are not read-only.
+
+`keycloak_replicas` defaults to two and must remain at least two; its distributed
+cache discovers peers through the shared database. Increase `oke_node_count`
+when pod capacity requires it.
 
 Before scaling:
 
 1. Confirm OKE worker shape capacity, node limits, and pod-subnet addresses.
 2. Confirm the node and NLB subnets have sufficient addresses.
-3. Increase PostgreSQL OCPUs/memory or instance count if index pressure is the
-   bottleneck.
+3. Increase PostgreSQL OCPUs/memory or node count if index pressure is the
+   bottleneck. Each added node incurs its own Compute cost.
 4. Review Network Load Balancer throughput and FastConnect capacity.
 
 Multiple Orthanc replicas use `PostgreSQL.Lock = false`, as required for shared
-index access. Keep every replica on the same pinned image and configuration.
+index access, and `TransactionMode = ReadCommitted` for concurrent writers.
+Keep every replica on the same pinned image and configuration. Do not perform a
+rolling Orthanc upgrade when the PostgreSQL plugin requires a schema migration;
+stop all replicas, migrate once, and then start the identical new version.
 
 ## Credential rotation
 

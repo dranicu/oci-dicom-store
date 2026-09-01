@@ -269,8 +269,19 @@ output "deployment_summary" {
     bastion_kubectl_arch   = local.bastion_kubectl_arch
     nlb_private_ip         = local.nlb_private_ip
     postgres_private_ip    = oci_psql_db_system.orthanc.network_details[0].primary_db_endpoint_private_ip
-    replicas               = var.orthanc_replicas
+    orthanc_replicas       = var.orthanc_replicas
     keycloak_replicas      = var.keycloak_replicas
+    postgres_nodes = {
+      configured  = var.postgres_instances
+      provisioned = length(oci_psql_db_system.orthanc.instances)
+      active = length([
+        for instance in oci_psql_db_system.orthanc.instances : instance
+        if instance.state == "ACTIVE"
+      ])
+      availability_domains = sort(distinct([
+        for instance in oci_psql_db_system.orthanc.instances : instance.availability_domain
+      ]))
+    }
   }
 }
 

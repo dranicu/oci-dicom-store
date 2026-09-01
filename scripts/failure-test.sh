@@ -34,7 +34,7 @@ for command_name in terraform curl jq ssh; do
 done
 
 summary="$(terraform -chdir="${terraform_dir}" output -json deployment_summary)"
-replicas="$(jq -r '.replicas' <<<"${summary}")"
+replicas="$(jq -r '.orthanc_replicas' <<<"${summary}")"
 ((replicas >= 2)) || {
   printf 'Failure test requires orthanc_replicas >= 2; current value is %s.\n' "${replicas}" >&2
   exit 2

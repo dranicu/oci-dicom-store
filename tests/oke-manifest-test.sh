@@ -98,6 +98,10 @@ end
 raise "Keycloak is not HA" unless deployments.dig("keycloak", "spec", "replicas") == 2
 raise "Keycloak spread missing" if deployments.dig("keycloak", "spec", "template", "spec", "topologySpreadConstraints").empty?
 raise "authorization spread missing" if deployments.dig("orthanc-auth-service", "spec", "template", "spec", "topologySpreadConstraints").empty?
+raise "Orthanc is not HA" unless deployments.dig("orthanc", "spec", "replicas") == 2
+orthanc_spread = deployments.dig("orthanc", "spec", "template", "spec", "topologySpreadConstraints").first
+raise "Orthanc requires fewer than two nodes" unless orthanc_spread["minDomains"] == 2
+raise "Orthanc placement is best-effort" unless orthanc_spread["whenUnsatisfiable"] == "DoNotSchedule"
 
 secret = objects.find { |item| item["kind"] == "Secret" && item.dig("metadata", "name") == "orthanc-runtime" }
 raise "unused auth username remains" if secret.fetch("data").key?("auth-username")

@@ -12,6 +12,8 @@ The selected Orthanc configuration is:
 
 - `PostgreSQL.EnableIndex = true`
 - `PostgreSQL.EnableStorage = false`
+- `PostgreSQL.Lock = false` and `TransactionMode = ReadCommitted` for the
+  required multi-writer Orthanc topology
 - `AwsS3Storage.StorageStructure = flat`
 - `AwsS3Storage.VirtualAddressing = false`
 - a stack-managed OCI Customer Secret Key on an existing IAM user, scoped by a
@@ -20,8 +22,10 @@ The selected Orthanc configuration is:
 
 OCI's compatibility endpoint uses the tenancy Object Storage namespace and
 region. Path-style addressing is selected because it avoids bucket-name DNS
-and certificate coupling. Orthanc replicas share the PostgreSQL index and
-Object Storage payloads, so no pod-local DICOM volume is authoritative.
+and certificate coupling. At least two identically configured Orthanc replicas
+share the managed PostgreSQL primary endpoint and Object Storage payloads, so
+no pod-local DICOM volume is authoritative. The OCI PostgreSQL DB system has at
+least two nodes and automatically promotes a replica on primary-node failure.
 
 ## Alternatives considered
 

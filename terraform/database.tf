@@ -1,7 +1,7 @@
 resource "oci_psql_db_system" "orthanc" {
   compartment_id = var.compartment_id
   display_name   = "${local.resource_name}-postgres"
-  description    = "Managed PostgreSQL metadata index for ${local.resource_name}"
+  description    = "Highly available managed PostgreSQL metadata index for ${local.resource_name}"
   db_version     = var.postgres_version
   shape          = var.postgres_shape
 

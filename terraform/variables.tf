@@ -395,13 +395,13 @@ variable "postgres_client_image" {
 }
 
 variable "orthanc_replicas" {
-  description = "Number of Orthanc pods distributed across OKE worker nodes."
+  description = "Number of stateless Orthanc pods distributed across OKE worker nodes. At least two are required."
   type        = number
   default     = 2
 
   validation {
-    condition     = var.orthanc_replicas >= 1 && var.orthanc_replicas <= 6
-    error_message = "orthanc_replicas must be between 1 and 6."
+    condition     = var.orthanc_replicas >= 2 && var.orthanc_replicas <= 6
+    error_message = "orthanc_replicas must be between 2 and 6 so Orthanc has no single-pod failure point."
   }
 }
 
@@ -579,13 +579,13 @@ variable "postgres_memory_gb" {
 }
 
 variable "postgres_instances" {
-  description = "PostgreSQL instance count. Use 2 or more for production availability."
+  description = "Node count in the managed OCI PostgreSQL DB system. At least two are required for automatic node failover."
   type        = number
   default     = 2
 
   validation {
-    condition     = var.postgres_instances >= 1 && var.postgres_instances <= 3
-    error_message = "postgres_instances must be between 1 and 3."
+    condition     = var.postgres_instances >= 2 && var.postgres_instances <= 8
+    error_message = "postgres_instances must be between 2 and 8 so PostgreSQL has a replica node for automatic failover."
   }
 }
 

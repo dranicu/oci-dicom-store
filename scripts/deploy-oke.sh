@@ -60,10 +60,12 @@ done
 }
 
 private_key="$(cd "$(dirname "${private_key}")" && pwd)/$(basename "${private_key}")"
-bastion_ip="$(terraform -chdir="${terraform_dir}" output -raw bastion_public_ip)"
-namespace="$(terraform -chdir="${terraform_dir}" output -json deployment_summary | jq -r '.name')"
-expected_nlb_ip="$(terraform -chdir="${terraform_dir}" output -json deployment_summary | jq -r '.nlb_private_ip')"
-calico_profile="$(terraform -chdir="${terraform_dir}" output -json deployment_summary | jq -er '.calico_profile')"
+deployment_summary="$(terraform -chdir="${terraform_dir}" output -json deployment_summary)"
+bastion_ip="$(jq -er '.bastion_public_ip' <<<"${deployment_summary}")"
+namespace="$(jq -er '.name' <<<"${deployment_summary}")"
+expected_nlb_ip="$(jq -er '.nlb_private_ip' <<<"${deployment_summary}")"
+expected_orthanc_replicas="$(jq -er '.orthanc_replicas' <<<"${deployment_summary}")"
+calico_profile="$(jq -er '.calico_profile' <<<"${deployment_summary}")"
 calico_source_dir="${project_dir}/kubernetes/calico/${calico_profile}"
 [[ -f "${calico_source_dir}/kustomization.yaml" ]] || {
   printf 'No Calico policy-only profile for Kubernetes minor %s.\n' "${calico_profile}" >&2
@@ -116,13 +118,14 @@ ssh \
   -i "${private_key}" \
   "${OCI_DICOM_SSH_TRUST_OPTIONS[@]}" \
   "${ssh_user}@${bastion_ip}" \
-  bash -s -- "${remote_manifest}" "${namespace}" "${expected_nlb_ip}" "${remote_calico_dir}" "${calico_profile}" <<'REMOTE'
+  bash -s -- "${remote_manifest}" "${namespace}" "${expected_nlb_ip}" "${remote_calico_dir}" "${calico_profile}" "${expected_orthanc_replicas}" <<'REMOTE'
 set -euo pipefail
 manifest_file="$1"
 namespace="$2"
 expected_nlb_ip="$3"
 calico_dir="$4"
 calico_profile="$5"
+expected_orthanc_replicas="$6"
 
 /usr/local/bin/kubectl apply -k "${calico_dir}/${calico_profile}"
 /usr/local/bin/kubectl -n kube-system rollout status \
@@ -183,6 +186,34 @@ for deployment in keycloak orthanc-auth-service orthanc dicom-gateway; do
     "deployment/${deployment}" \
     --timeout=20m
 done
+
+orthanc_status="$(
+  /usr/local/bin/kubectl -n "${namespace}" get deployment orthanc \
+    --output=jsonpath='{.status.updatedReplicas} {.status.readyReplicas} {.status.availableReplicas}'
+)"
+read -r orthanc_updated orthanc_ready orthanc_available <<<"${orthanc_status}"
+if [[ "${orthanc_updated}" != "${expected_orthanc_replicas}" ||
+      "${orthanc_ready}" != "${expected_orthanc_replicas}" ||
+      "${orthanc_available}" != "${expected_orthanc_replicas}" ]]; then
+  printf 'Orthanc replica validation failed: expected=%s, updated=%s, ready=%s, available=%s.\n' \
+    "${expected_orthanc_replicas}" "${orthanc_updated:-0}" \
+    "${orthanc_ready:-0}" "${orthanc_available:-0}" >&2
+  exit 1
+fi
+orthanc_node_count="$(
+  /usr/local/bin/kubectl -n "${namespace}" get pods \
+    --selector=app.kubernetes.io/name=orthanc \
+    --field-selector=status.phase=Running \
+    --output=jsonpath='{range .items[*]}{.spec.nodeName}{"\n"}{end}' |
+    sort -u | sed '/^$/d' | wc -l | tr -d ' '
+)"
+if ((orthanc_node_count < 2)); then
+  printf 'Orthanc replicas are running on only %s worker node(s); expected at least 2.\n' \
+    "${orthanc_node_count}" >&2
+  exit 1
+fi
+printf 'Orthanc HA ready: %s replicas across %s worker nodes.\n' \
+  "${orthanc_available}" "${orthanc_node_count}"
 
 for attempt in $(seq 1 60); do
   actual_nlb_ip="$(

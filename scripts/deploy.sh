@@ -105,9 +105,23 @@ else
   terraform apply "${plan_file}"
 fi
 
+deployment_summary="$(terraform output -json deployment_summary)"
+postgres_nodes="$(jq -er '.postgres_nodes' <<<"${deployment_summary}")"
+postgres_configured="$(jq -er '.configured' <<<"${postgres_nodes}")"
+postgres_provisioned="$(jq -er '.provisioned' <<<"${postgres_nodes}")"
+postgres_active="$(jq -er '.active' <<<"${postgres_nodes}")"
+if ((postgres_configured < 2 || postgres_provisioned < 2 || postgres_active < 2)); then
+  printf 'PostgreSQL HA validation failed: configured=%s, provisioned=%s, active=%s.\n' \
+    "${postgres_configured}" "${postgres_provisioned}" "${postgres_active}" >&2
+  exit 1
+fi
+printf 'PostgreSQL HA ready: %s active nodes across %s availability domain(s).\n' \
+  "${postgres_active}" \
+  "$(jq -r '.availability_domains | length' <<<"${postgres_nodes}")"
+
 "${project_dir}/scripts/wait-for-storage-credentials.sh"
 
-terraform output deployment_summary
+jq . <<<"${deployment_summary}"
 
 if [[ -n "${BASTION_SSH_PRIVATE_KEY_FILE:-}" ]]; then
   printf '\nConfiguring the operator bastion with Ansible...\n'
