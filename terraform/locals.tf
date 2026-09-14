@@ -61,9 +61,20 @@ locals {
   s3_compatibility_endpoint  = "https://${data.oci_objectstorage_namespace.this.namespace}.compat.objectstorage.${var.region}.oci.customer-oci.com"
   nlb_private_ip             = oci_core_private_ip.orthanc_nlb.ip_address
   authorization_service_user = "orthanc-auth"
-  oke_node_arch              = length(regexall("\\.A[0-9]+\\.", var.oke_node_shape)) > 0 ? "AARCH64" : "X86_64"
-  bastion_kubectl_arch       = length(regexall("\\.A[0-9]+\\.", var.bastion_shape)) > 0 ? "arm64" : "amd64"
-  oke_kubernetes_minor       = join(".", slice(split(".", trimprefix(var.oke_kubernetes_version, "v")), 0, 2))
+
+  # Orthanc Explorer 2 versions 1.14.1 and 1.15.0 pass malformed resource
+  # arguments from their built-in instance preview/download buttons to the
+  # authorization token helper. Hide the defective preview link; the built-in
+  # download link is disabled below and both are replaced with token-aware
+  # custom buttons.
+  orthanc_explorer_css = <<-CSS
+    .instance-button-group .custom-button-group > div:has(> a > i.bi-binoculars) {
+      display: none !important;
+    }
+  CSS
+  oke_node_arch        = length(regexall("\\.A[0-9]+\\.", var.oke_node_shape)) > 0 ? "AARCH64" : "X86_64"
+  bastion_kubectl_arch = length(regexall("\\.A[0-9]+\\.", var.bastion_shape)) > 0 ? "arm64" : "amd64"
+  oke_kubernetes_minor = join(".", slice(split(".", trimprefix(var.oke_kubernetes_version, "v")), 0, 2))
   calico_release_by_kubernetes_minor = {
     "1.33" = "3.30.0"
     "1.34" = "3.30.3"
@@ -122,8 +133,9 @@ locals {
     }
 
     OrthancExplorer2 = {
-      Enable      = true
-      IsDefaultUI = true
+      Enable        = true
+      IsDefaultUI   = true
+      CustomCssPath = "/etc/orthanc-explorer/custom.css"
       Keycloak = {
         Enable   = true
         Url      = "${local.public_base_url}/keycloak/"
@@ -138,9 +150,30 @@ locals {
         EnableAnonymization        = true
         EnableModification         = true
         EnableDownloadZip          = true
+        EnableDownloadDicomFile    = false
         EnableOpenInStoneWebViewer = true
         EnableOpenInOhifViewer3    = true
         OhifViewer3PublicRoot      = "${local.public_base_url}${local.ohif_public_path}"
+        CustomButtons = {
+          instance = [
+            {
+              HttpMethod = "GET"
+              Id         = "instance-preview"
+              Tooltip    = "Preview DICOM instance"
+              Target     = "_blank"
+              Icon       = "bi bi-binoculars"
+              Url        = "../../instances/{UUID}/preview?token={study-resource-token/download-instant-link}"
+            },
+            {
+              HttpMethod = "GET"
+              Id         = "instance-download"
+              Tooltip    = "Download DICOM instance"
+              Target     = "_self"
+              Icon       = "bi bi-download"
+              Url        = "../../instances/{UUID}/file?token={study-resource-token/download-instant-link}"
+            },
+          ]
+        }
       }
     }
 
@@ -494,6 +527,7 @@ locals {
     nginx_image                 = var.nginx_image
     postgres_client_image       = var.postgres_client_image
     orthanc_config_b64          = base64encode(jsonencode(local.orthanc_configuration))
+    orthanc_explorer_css_b64    = base64encode(local.orthanc_explorer_css)
     permissions_b64             = base64encode(jsonencode(local.orthanc_role_permissions))
     keycloak_realm_b64          = base64encode(jsonencode(local.keycloak_realm))
     nginx_config_b64            = base64encode(local.nginx_configuration)
@@ -528,7 +562,10 @@ locals {
       var.postgres_client_image,
       "schema-v2",
     ])), 0, 12)
-    orthanc_config_hash = sha256(jsonencode(local.orthanc_configuration))
+    orthanc_config_hash = sha256(jsonencode({
+      configuration = local.orthanc_configuration
+      explorer_css  = local.orthanc_explorer_css
+    }))
     auth_service_config_hash = sha256(jsonencode({
       permissions = local.orthanc_role_permissions
       password    = local.auth_service_password

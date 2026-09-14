@@ -14,6 +14,10 @@ viewer_expression+=' ohif_router_basename = local.orthanc_configuration.OHIF.Rou
 viewer_expression+=' ohif_public_path = local.ohif_public_path,'
 viewer_expression+=' ohif_enabled_in_explorer = local.orthanc_configuration.OrthancExplorer2.UiOptions.EnableOpenInOhifViewer3,'
 viewer_expression+=' stone_enabled_in_explorer = local.orthanc_configuration.OrthancExplorer2.UiOptions.EnableOpenInStoneWebViewer,'
+viewer_expression+=' custom_css_path = local.orthanc_configuration.OrthancExplorer2.CustomCssPath,'
+viewer_expression+=' built_in_instance_download = local.orthanc_configuration.OrthancExplorer2.UiOptions.EnableDownloadDicomFile,'
+viewer_expression+=' instance_buttons = local.orthanc_configuration.OrthancExplorer2.UiOptions.CustomButtons.instance,'
+viewer_expression+=' explorer_css = local.orthanc_explorer_css,'
 viewer_expression+=' authorization_profiles = local.orthanc_configuration.Authorization.StandardConfigurations'
 viewer_expression+=' })'
 viewer_configuration="$({
@@ -30,9 +34,21 @@ jq -e '
   .ohif_public_path == "/orthanc/ohif/" and
   .ohif_enabled_in_explorer == true and
   .stone_enabled_in_explorer == true and
+  .custom_css_path == "/etc/orthanc-explorer/custom.css" and
+  .built_in_instance_download == false and
+  (.explorer_css | contains("bi-binoculars")) and
+  (.instance_buttons | length == 2) and
+  (.instance_buttons | any(
+    .Id == "instance-preview" and
+    .Url == "../../instances/{UUID}/preview?token={study-resource-token/download-instant-link}"
+  )) and
+  (.instance_buttons | any(
+    .Id == "instance-download" and
+    .Url == "../../instances/{UUID}/file?token={study-resource-token/download-instant-link}"
+  )) and
   (.authorization_profiles | index("orthanc-explorer-2") != null) and
   (.authorization_profiles | index("stone-webviewer") != null) and
   (.authorization_profiles | index("ohif") != null)
 ' <<<"${viewer_configuration}" >/dev/null
 
-printf 'Stone and OHIF share the authenticated DICOMweb and study-authorization configuration.\n'
+printf 'Viewers and instance actions share the authenticated, study-scoped token configuration.\n'

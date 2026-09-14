@@ -18,6 +18,7 @@ locals {
     nginx_image                   = "example.invalid/nginx:1"
     postgres_client_image         = "example.invalid/postgres:1"
     orthanc_config_b64            = "e30="
+    orthanc_explorer_css_b64      = "LmhpZGRlbiB7IGRpc3BsYXk6IG5vbmU7IH0="
     permissions_b64               = "e30="
     keycloak_realm_b64            = "e30="
     nginx_config_b64              = "e30="
@@ -108,6 +109,10 @@ end
 orthanc_env = orthanc_container.fetch("env").to_h { |entry| [entry["name"], entry["value"]] }
 raise "Stone Web Viewer plugin is not enabled" unless orthanc_env["STONE_WEB_VIEWER_PLUGIN_ENABLED"] == "true"
 raise "OHIF plugin is not enabled" unless orthanc_env["OHIF_PLUGIN_ENABLED"] == "true"
+orthanc_mounts = orthanc_container.fetch("volumeMounts").to_h { |mount| [mount["name"], mount] }
+raise "Orthanc Explorer customization is not mounted" unless orthanc_mounts.dig("explorer-customization", "mountPath") == "/etc/orthanc-explorer"
+explorer_config = objects.find { |item| item["kind"] == "ConfigMap" && item.dig("metadata", "name") == "orthanc-explorer" }
+raise "Orthanc Explorer custom CSS is missing" unless explorer_config&.dig("binaryData", "custom.css")
 
 secret = objects.find { |item| item["kind"] == "Secret" && item.dig("metadata", "name") == "orthanc-runtime" }
 raise "unused auth username remains" if secret.fetch("data").key?("auth-username")
