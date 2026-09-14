@@ -174,6 +174,27 @@ if qido_contains "${tenant_a_token}" "${study_uid_b}" "${temporary_dir}/qido-cro
 fi
 printf 'OK  DICOMweb QIDO-RS: positive visibility and cross-tenant concealment\n'
 
+viewer_token_json="$(curl --fail --silent --show-error \
+  -X PUT \
+  -H "Authorization: Bearer ${tenant_a_token}" \
+  -H 'Content-Type: application/json' \
+  --data "$(jq -nc \
+    --arg orthanc_id "${study_id_a}" \
+    --arg dicom_uid "${study_uid_a}" \
+    '{
+      Type: "viewer-instant-link",
+      ValidityDuration: 300,
+      Resources: [{OrthancId: $orthanc_id, DicomUid: $dicom_uid, Level: "study"}]
+    }')" \
+  "${api_endpoint}/auth/tokens/viewer-instant-link")"
+viewer_token="$(jq -er '.Token' <<<"${viewer_token_json}")"
+qido_contains "${viewer_token}" "${study_uid_a}" "${temporary_dir}/viewer-qido-a.json"
+if qido_contains "${viewer_token}" "${study_uid_b}" "${temporary_dir}/viewer-qido-cross.json"; then
+  printf 'A study-scoped viewer token discovered tenant %s study.\n' "${tenant_b}" >&2
+  exit 1
+fi
+printf 'OK  Stone/OHIF viewer token: Keycloak user can open only the authorized study\n'
+
 wado_path() {
   local metadata="$1"
   printf '%s/studies/%s/series/%s/instances/%s' \
@@ -185,7 +206,7 @@ wado_path() {
 wado_a="$(wado_path "${metadata_a}")"
 wado_b="$(wado_path "${metadata_b}")"
 status="$(curl --silent --show-error --output "${temporary_dir}/wado-a.bin" --write-out '%{http_code}' \
-  -H "Authorization: Bearer ${tenant_a_token}" \
+  -H "Authorization: Bearer ${viewer_token}" \
   -H 'Accept: multipart/related; type="application/dicom"' "${wado_a}")"
 [[ "${status}" == "200" ]] || { printf 'Expected WADO-RS 200, got %s.\n' "${status}" >&2; exit 1; }
 grep -a -q 'DICM' "${temporary_dir}/wado-a.bin" || {
@@ -193,13 +214,13 @@ grep -a -q 'DICM' "${temporary_dir}/wado-a.bin" || {
   exit 1
 }
 cross_status="$(curl --silent --show-error --output "${temporary_dir}/wado-cross.json" --write-out '%{http_code}' \
-  -H "Authorization: Bearer ${tenant_a_token}" \
+  -H "Authorization: Bearer ${viewer_token}" \
   -H 'Accept: multipart/related; type="application/dicom"' "${wado_b}")"
 [[ "${cross_status}" == "403" || "${cross_status}" == "404" ]] || {
   printf 'Cross-tenant WADO-RS returned %s instead of 403/404.\n' "${cross_status}" >&2
   exit 1
 }
-printf 'OK  DICOMweb WADO-RS: retrieval allowed only within the tenant\n'
+printf 'OK  DICOMweb WADO-RS: study-scoped viewer retrieval and cross-tenant denial\n'
 
 audit_json="$(curl --fail --silent --show-error \
   -H "Authorization: Bearer ${admin_token}" "${api_endpoint}/auth/audit-logs")"

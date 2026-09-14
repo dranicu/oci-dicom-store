@@ -57,6 +57,7 @@ locals {
   } : {}
 
   public_base_url            = "https://${oci_apigateway_gateway.orthanc.hostname}"
+  ohif_public_path           = "/orthanc/ohif/"
   s3_compatibility_endpoint  = "https://${data.oci_objectstorage_namespace.this.namespace}.compat.objectstorage.${var.region}.oci.customer-oci.com"
   nlb_private_ip             = oci_core_private_ip.orthanc_nlb.ip_address
   authorization_service_user = "orthanc-auth"
@@ -115,6 +116,11 @@ locals {
       PublicRoot = "${local.public_base_url}/orthanc/dicom-web/"
     }
 
+    OHIF = {
+      DataSource     = "dicom-web"
+      RouterBasename = local.ohif_public_path
+    }
+
     OrthancExplorer2 = {
       Enable      = true
       IsDefaultUI = true
@@ -133,6 +139,8 @@ locals {
         EnableModification         = true
         EnableDownloadZip          = true
         EnableOpenInStoneWebViewer = true
+        EnableOpenInOhifViewer3    = true
+        OhifViewer3PublicRoot      = "${local.public_base_url}${local.ohif_public_path}"
       }
     }
 
@@ -143,6 +151,7 @@ locals {
       StandardConfigurations = [
         "orthanc-explorer-2",
         "stone-webviewer",
+        "ohif",
       ]
       TokenHttpHeaders = ["Authorization"]
       CheckedLevel     = "studies"
@@ -328,7 +337,6 @@ locals {
       email           = "${var.orthanc_username}@local.invalid"
       enabled         = true
       emailVerified   = true
-      attributes      = { "oci-dicom-managed" = ["true"] }
       realmRoles      = ["orthanc-admin"]
       requiredActions = []
       credentials = [{
@@ -344,7 +352,6 @@ locals {
         email           = "${tenant_user.username}@local.invalid"
         enabled         = true
         emailVerified   = true
-        attributes      = { "oci-dicom-managed" = ["true"] }
         realmRoles      = [tenant_user.role]
         requiredActions = []
         credentials = [{

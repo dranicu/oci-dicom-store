@@ -102,6 +102,12 @@ raise "Orthanc is not HA" unless deployments.dig("orthanc", "spec", "replicas") 
 orthanc_spread = deployments.dig("orthanc", "spec", "template", "spec", "topologySpreadConstraints").first
 raise "Orthanc requires fewer than two nodes" unless orthanc_spread["minDomains"] == 2
 raise "Orthanc placement is best-effort" unless orthanc_spread["whenUnsatisfiable"] == "DoNotSchedule"
+orthanc_container = deployments.dig("orthanc", "spec", "template", "spec", "containers").find do |container|
+  container["name"] == "orthanc"
+end
+orthanc_env = orthanc_container.fetch("env").to_h { |entry| [entry["name"], entry["value"]] }
+raise "Stone Web Viewer plugin is not enabled" unless orthanc_env["STONE_WEB_VIEWER_PLUGIN_ENABLED"] == "true"
+raise "OHIF plugin is not enabled" unless orthanc_env["OHIF_PLUGIN_ENABLED"] == "true"
 
 secret = objects.find { |item| item["kind"] == "Secret" && item.dig("metadata", "name") == "orthanc-runtime" }
 raise "unused auth username remains" if secret.fetch("data").key?("auth-username")

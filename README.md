@@ -4,6 +4,7 @@ This repository is a complete Terraform deployment of the core store in
 Oracle's [cloud-native DICOM reference architecture](https://docs.oracle.com/en/solutions/cloud-native-dicom-on-oci/index.html):
 
 - two or more Orthanc DICOMweb/REST instances on private OCI Kubernetes Engine (OKE)
+- integrated Stone and OHIF Web viewers using the same study-scoped authorization
 - Keycloak plus the official Orthanc authorization service
 - optional OCI IAM Identity Domains SSO for existing workforce accounts
 - platform-wide roles plus study-label-enforced viewer, uploader, editor, and
@@ -225,8 +226,8 @@ make get-credentials
 ```
 
 The verifier exchanges the generated initial administrator credential for a
-short-lived Keycloak access token, checks Orthanc `/system`, and runs a
-DICOMweb QIDO-RS query. Generated
+short-lived Keycloak access token, checks Orthanc `/system`, runs a DICOMweb
+QIDO-RS query, and verifies that both Stone and OHIF are reachable. Generated
 DICOM files contain no patient data. Samples uploaded with `make verify-dicom`
 remain in Orthanc until deleted from the Web UI; `make verify-dicom-clean`
 removes its sample automatically.
@@ -241,9 +242,10 @@ make restore-drill PRIVATE_KEY=~/.ssh/id_rsa
 ```
 
 `verify-compliance` proves STOW-RS, QIDO-RS, WADO-RS, unlabeled quarantine,
-positive tenant access, cross-tenant denial, PostgreSQL-backed Orthanc audit
-events, private/versioned Object Storage use, encryption-key mode, regional
-database durability, and the backup policy. `failure-test` removes one Orthanc
+positive tenant access, cross-tenant denial, study-scoped viewer tokens used by
+Stone and OHIF, PostgreSQL-backed Orthanc audit events, private/versioned Object
+Storage use, encryption-key mode, regional database durability, and the backup
+policy. `failure-test` removes one Orthanc
 pod and proves QIDO-RS remains available while Kubernetes replaces it.
 `restore-drill` is a long-running and temporarily billable test: it creates a
 manual managed-PostgreSQL backup, provisions a one-node database from that

@@ -156,7 +156,7 @@ region and legal residency requirements are deployment-specific.
 
 ## Upgrades
 
-1. Read Orthanc core, PostgreSQL plugin, DICOMweb plugin, and S3 plugin release notes.
+1. Read Orthanc core, PostgreSQL, DICOMweb, S3, Stone, and OHIF plugin release notes.
 2. Pin a new `orthanc_image` tag in a non-production workspace.
 3. Run API checks and upload/retrieve/delete lifecycle tests.
 4. Review database schema migration and rollback compatibility.

@@ -23,7 +23,7 @@ help: ## Show the available deployment commands.
 		'  make show-plan            Display the saved Terraform plan' \
 		'  make apply                Plan and apply interactively' \
 		'  make apply-auto           Plan and apply without confirmation' \
-		'  make verify               Test Orthanc REST and DICOMweb' \
+		'  make verify               Test Orthanc REST, DICOMweb, Stone, and OHIF' \
 		'  make verify-compliance    Prove STOW/QIDO/WADO, tenant isolation, audit, storage, and backup policy' \
 		'  make failure-test         Delete one Orthanc pod and prove uninterrupted recovery' \
 		'  make restore-drill        Create a backup, restore/validate it, then remove drill resources' \
@@ -75,7 +75,7 @@ outputs: ## Show the non-secret deployment summary.
 show-output: ## Show all Terraform outputs with sensitive values redacted.
 	terraform -chdir=terraform output
 
-verify: ## Check public Orthanc REST and DICOMweb endpoints.
+verify: ## Check public Orthanc REST, DICOMweb, Stone, and OHIF endpoints.
 	./scripts/verify.sh
 
 verify-dicom: ## Upload and retain one non-production DICOM instance.

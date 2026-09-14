@@ -9,13 +9,15 @@ Keycloak broker configuration.
 The browser authentication flow is:
 
 ```text
-Orthanc Explorer -> Keycloak -> OCI IAM Identity Domain -> Keycloak -> Orthanc
+Orthanc Explorer -> Keycloak -> OCI IAM Identity Domain -> Keycloak -> Orthanc Explorer -> Stone/OHIF
 ```
 
 Keycloak remains between Orthanc and OCI IAM because Orthanc Explorer and the
 official Orthanc authorization service integrate with Keycloak roles. OCI IAM
 performs authentication and MFA; Keycloak maps the OCI group claim into the
-Orthanc authorization roles.
+Orthanc authorization roles. Stone and OHIF are launched from Orthanc Explorer
+with short-lived, study-scoped viewer tokens, so both viewers inherit the same
+role and tenant-label decisions.
 
 ## Enable SSO
 
@@ -89,9 +91,11 @@ Assign each person to one tenant role whenever possible. Membership in two
 tenant groups intentionally grants access to both label sets. Only the global
 `orthanc-admin` performs trusted study classification.
 
-Open the Orthanc Web UI and select **OCI IAM SSO**. A user not assigned to one
-of the application groups cannot use the OCI application. A user assigned to
-the application but to no mapped role cannot access Orthanc resources.
+Open the Orthanc Web UI and select **OCI IAM SSO**. After login, an authorized
+study can be opened in either Stone or OHIF. A user not assigned to one of the
+application groups cannot use the OCI application. A user assigned to the
+application but to no mapped role cannot access Orthanc resources or either
+viewer's DICOMweb data.
 
 Group changes take effect on the next brokered login, not in an already-issued
 Keycloak session. After adding or removing a user, sign out of Orthanc and sign

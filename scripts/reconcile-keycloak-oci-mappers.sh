@@ -426,8 +426,13 @@ verify_configuration() {
     }
   else
     actual_idp="$(request GET '/identity-provider/instances/oci')"
-    jq -e --argjson desired "$(jq '.[0]' <<<"${desired_idps}")" 'contains($desired)' \
-      <<<"${actual_idp}" >/dev/null || {
+    # Keycloak masks a persisted client secret in Admin API responses, so its
+    # read-back value cannot equal the secret Terraform supplied. Verify that
+    # a value is present, then compare every non-secret provider setting.
+    jq -e --argjson desired "$(jq '.[0] | del(.config.clientSecret)' <<<"${desired_idps}")" '
+      (.config.clientSecret | type == "string" and length > 0) and
+      (del(.config.clientSecret) | contains($desired))
+    ' <<<"${actual_idp}" >/dev/null || {
       printf 'Keycloak OCI identity provider does not match Terraform.\n' >&2
       return 1
     }

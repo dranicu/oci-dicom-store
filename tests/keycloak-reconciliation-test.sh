@@ -90,7 +90,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/identity-provider/instances":
             return self.reply(value=state["idps"])
         if path == "/identity-provider/instances/oci":
-            return self.reply(value=next(item for item in state["idps"] if item["alias"] == "oci"))
+            item = next(item for item in state["idps"] if item["alias"] == "oci")
+            value = {**item, "config": dict(item.get("config", {}))}
+            if "clientSecret" in value["config"]:
+                value["config"]["clientSecret"] = "**********"
+            return self.reply(value=value)
         if path == "/identity-provider/instances/oci/mappers":
             return self.reply(value=state["idp_mappers"])
         self.reply(404, {"path": path})
@@ -213,7 +217,7 @@ cat >"${temporary_dir}/desired.json" <<'JSON'
   "roles":{"realm":[{"name":"orthanc-admin","composite":false,"clientRole":false},{"name":"tenant-a-viewer","composite":false,"clientRole":false}]},
   "clients":[{"clientId":"orthanc","enabled":true,"protocol":"openid-connect","publicClient":true,"redirectUris":["https://example.invalid/orthanc/*"],"protocolMappers":[{"name":"account audience","protocol":"openid-connect","protocolMapper":"oidc-audience-mapper","config":{"included.client.audience":"account"}}]}],
   "users":[{"username":"orthanc-admin","firstName":"Orthanc","lastName":"Administrator","email":"orthanc-admin@local.invalid","enabled":true,"emailVerified":true,"attributes":{"oci-dicom-managed":["true"]},"realmRoles":["orthanc-admin"],"requiredActions":[],"credentials":[{"type":"password","value":"secret","temporary":false}]}],
-  "identityProviders":[{"alias":"oci","displayName":"OCI IAM SSO","providerId":"oidc","enabled":true,"config":{"defaultScope":"openid profile group"}}],
+  "identityProviders":[{"alias":"oci","displayName":"OCI IAM SSO","providerId":"oidc","enabled":true,"config":{"defaultScope":"openid profile group","clientSecret":"idp-secret"}}],
   "identityProviderMappers":[{"name":"OCI Administrators","identityProviderAlias":"oci","identityProviderMapper":"oidc-advanced-group-idp-mapper","config":{"claim":"groups","claim.value":"Admins","role":"orthanc-admin","syncMode":"FORCE"}}]
 }
 JSON
@@ -253,6 +257,8 @@ test_env=(
 )
 env "${test_env[@]}" "${project_dir}/scripts/reconcile-keycloak-oci-mappers.sh" >/dev/null
 env "${test_env[@]}" "${project_dir}/scripts/reconcile-keycloak-oci-mappers.sh" --check >/dev/null
+curl -fsS "http://127.0.0.1:${port}/state" | jq -e \
+  '.idps[0].config.clientSecret == "idp-secret"' >/dev/null
 
 jq '
   .roles.realm = [.roles.realm[] | select(.name == "orthanc-admin")] |

@@ -5,8 +5,8 @@ usage() {
   cat <<'USAGE'
 Usage: scripts/verify.sh [--dicom /absolute/path/to/test.dcm] [--delete-after-upload]
 
-Checks the Orthanc REST and DICOMweb endpoints. With --dicom, it also uploads
-one non-production DICOM instance through Orthanc's REST API.
+Checks the Orthanc REST, DICOMweb, Stone, and OHIF endpoints. With --dicom, it
+also uploads one non-production DICOM instance through Orthanc's REST API.
 
 --delete-after-upload removes the uploaded instance after it has been verified.
 USAGE
@@ -230,6 +230,14 @@ studies_json="$(curl "${curl_common[@]}" \
   "${dicomweb_endpoint}/studies?limit=1")"
 jq -e 'type == "array"' <<<"${studies_json}" >/dev/null
 printf 'OK  DICOMweb QIDO-RS: %s\n' "${dicomweb_endpoint}"
+
+curl "${curl_common[@]}" --output /dev/null \
+  "${api_endpoint}/stone-webviewer/index.html"
+printf 'OK  Stone Web Viewer application\n'
+
+curl "${curl_common[@]}" --output /dev/null \
+  "${api_endpoint}/ohif/"
+printf 'OK  OHIF application\n'
 
 if [[ -n "${dicom_file}" ]]; then
   [[ -f "${dicom_file}" ]] || { printf 'DICOM file not found: %s\n' "${dicom_file}" >&2; exit 1; }
