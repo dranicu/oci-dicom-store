@@ -135,9 +135,9 @@ resource "oci_core_private_ip" "orthanc_nlb" {
   freeform_tags = local.tags
 
   lifecycle {
-    # OKE assigns the reserved address to the NLB VNIC. Detaching that
-    # service-managed association would interrupt the running gateway.
-    ignore_changes = [vnic_id]
+    # OKE assigns the reserved address to the NLB VNIC and renames it. Reverting
+    # either service-managed value would interrupt or be rejected by the NLB VNIC.
+    ignore_changes = [vnic_id, display_name]
   }
 }
 

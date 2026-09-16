@@ -229,6 +229,15 @@ studies_json="$(curl "${curl_common[@]}" \
   -H 'Accept: application/dicom+json' \
   "${dicomweb_endpoint}/studies?limit=1")"
 jq -e 'type == "array"' <<<"${studies_json}" >/dev/null
+if [[ "$(jq 'length' <<<"${studies_json}")" -gt 0 ]]; then
+  jq -e --arg root "${dicomweb_endpoint}/studies/" '
+    all(.[]; (."00081190".Value[0]? // "") | startswith($root))
+  ' <<<"${studies_json}" >/dev/null || {
+    printf 'DICOMweb QIDO-RS advertises a retrieval URL outside %s/studies/.\n' \
+      "${dicomweb_endpoint}" >&2
+    exit 1
+  }
+fi
 printf 'OK  DICOMweb QIDO-RS: %s\n' "${dicomweb_endpoint}"
 
 curl "${curl_common[@]}" --output /dev/null \

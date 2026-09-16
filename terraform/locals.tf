@@ -124,7 +124,7 @@ locals {
     DicomWeb = {
       Enable     = true
       Root       = "/dicom-web/"
-      PublicRoot = "${local.public_base_url}/orthanc/dicom-web/"
+      PublicRoot = "/orthanc/dicom-web/"
     }
 
     OHIF = {
@@ -491,10 +491,11 @@ locals {
         location /orthanc/ {
           proxy_pass http://orthanc:8042/;
           proxy_http_version 1.1;
-          proxy_set_header Host $host;
-          proxy_set_header X-Forwarded-Host $host;
+          proxy_set_header Host ${oci_apigateway_gateway.orthanc.hostname};
+          proxy_set_header X-Forwarded-Host ${oci_apigateway_gateway.orthanc.hostname};
           proxy_set_header X-Forwarded-Proto https;
           proxy_set_header X-Forwarded-Port 443;
+          proxy_set_header Forwarded "host=${oci_apigateway_gateway.orthanc.hostname};proto=https";
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
           proxy_set_header Authorization $http_authorization;
         }
