@@ -128,7 +128,9 @@ planning arguments with `TF_ARGS`, for example
    propagation before deploying the credential to Orthanc. Override this only
    when necessary with `STORAGE_CREDENTIAL_TIMEOUT_SECONDS`.
    To use existing OCI accounts for Orthanc, set `oci_identity_domain_sso` to
-   the domain OCID that owns those users. See [OCI IAM SSO](docs/sso.md).
+   the domain OCID that owns those users. See the
+   [Keycloak configuration guide](docs/keycloak.md) and
+   [OCI IAM SSO](docs/sso.md).
    Replace the example `orthanc_tenants` map with the approved tenant catalog.
    Labels are security identifiers and must remain stable after studies are
    classified. Enable `enable_tenant_test_users` only for acceptance testing.
