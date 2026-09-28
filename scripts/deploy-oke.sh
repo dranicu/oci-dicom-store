@@ -222,7 +222,7 @@ for attempt in $(seq 1 60); do
   )"
   if [[ "${actual_nlb_ip}" == "${expected_nlb_ip}" ]]; then
     printf 'OKE internal NLB is ready at %s.\n' "${actual_nlb_ip}"
-    exit 0
+    break
   fi
   if [[ -n "${actual_nlb_ip}" ]]; then
     printf 'Waiting for reserved NLB IP %s (controller currently reports %s)...\n' \
@@ -231,10 +231,26 @@ for attempt in $(seq 1 60); do
   sleep 10
 done
 
-/usr/local/bin/kubectl -n "${namespace}" describe service dicom-gateway >&2
-printf 'OKE internal NLB did not acquire reserved IP %s within 10 minutes.\n' \
-  "${expected_nlb_ip}" >&2
-exit 1
+if [[ "${actual_nlb_ip}" != "${expected_nlb_ip}" ]]; then
+  /usr/local/bin/kubectl -n "${namespace}" describe service dicom-gateway >&2
+  printf 'OKE internal NLB did not acquire reserved IP %s within 10 minutes.\n' "${expected_nlb_ip}" >&2
+  exit 1
+fi
+
+if /usr/local/bin/kubectl -n "${namespace}" get service dicom-large-upload >/dev/null 2>&1; then
+  expected_upload_ip="$(/usr/local/bin/kubectl -n "${namespace}" get service dicom-large-upload -o go-template='{{index .metadata.annotations "oci.oraclecloud.com/reserved-ips"}}')"
+  for attempt in $(seq 1 60); do
+    upload_ips="$(/usr/local/bin/kubectl -n "${namespace}" get service dicom-large-upload -o jsonpath='{.status.loadBalancer.ingress[*].ip}')"
+    if [[ " ${upload_ips} " == *" ${expected_upload_ip} "* ]]; then
+      printf 'Large-upload HTTPS NLB is ready at %s.\n' "${expected_upload_ip}"
+      exit 0
+    fi
+    sleep 10
+  done
+  /usr/local/bin/kubectl -n "${namespace}" describe service dicom-large-upload >&2
+  printf 'Large-upload NLB did not acquire its reserved IP within 10 minutes.\n' >&2
+  exit 1
+fi
 REMOTE
 
 "${project_dir}/scripts/reconcile-keycloak-oci-mappers.sh"

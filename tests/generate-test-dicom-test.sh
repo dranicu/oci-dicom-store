@@ -5,7 +5,7 @@ project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/oci-dicom-generator-test.XXXXXX")"
 trap 'rm -rf "${temporary_dir}"' EXIT
 
-metadata="$(${project_dir}/scripts/generate-test-dicom.py \
+metadata="$("${project_dir}/scripts/generate-test-dicom.py" \
   "${temporary_dir}/synthetic.dcm" --patient-id SYNTHETIC-UNIT-TEST)"
 jq -e '
   .PatientID == "SYNTHETIC-UNIT-TEST" and

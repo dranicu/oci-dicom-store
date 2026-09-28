@@ -56,6 +56,7 @@ terraform_files=(
   observability.tf
   bastion.tf
   fastconnect.tf
+  large_upload.tf
   outputs.tf
 )
 for terraform_file in "${terraform_files[@]}"; do

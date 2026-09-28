@@ -73,9 +73,9 @@ tenant_b_token="$(get_token \
   "$(jq -r --arg tenant "${tenant_b}" '.[$tenant].password' <<<"${tenant_credentials}")")"
 printf 'OK  OIDC tokens: administrator, %s, %s\n' "${tenant_a}" "${tenant_b}"
 
-metadata_a="$(${project_dir}/scripts/generate-test-dicom.py \
+metadata_a="$("${project_dir}/scripts/generate-test-dicom.py" \
   "${temporary_dir}/${tenant_a}.dcm" --patient-id "SYNTHETIC-$(tr '[:lower:]' '[:upper:]' <<<"${tenant_a}")")"
-metadata_b="$(${project_dir}/scripts/generate-test-dicom.py \
+metadata_b="$("${project_dir}/scripts/generate-test-dicom.py" \
   "${temporary_dir}/${tenant_b}.dcm" --patient-id "SYNTHETIC-$(tr '[:lower:]' '[:upper:]' <<<"${tenant_b}")")"
 
 stow() {

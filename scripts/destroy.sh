@@ -126,6 +126,7 @@ resource_before() {
 }
 
 bucket_before="$(resource_before 'oci_objectstorage_bucket.dicom')"
+public_upload_ip_before="$(resource_before 'oci_core_public_ip.large_upload[0]')"
 private_ip_before="$(resource_before 'oci_core_private_ip.orthanc_nlb')"
 sso_app_before="$(resource_before 'oci_identity_domains_app.orthanc_sso[0]')"
 sso_grant_count="$(jq '[
@@ -138,7 +139,7 @@ oke_node_pool_before="$(resource_before 'oci_containerengine_node_pool.orthanc')
 
 needs_oci="false"
 if [[ "${purge_bucket}" == "true" && "${bucket_before}" != "null" ]] || \
-   [[ "${private_ip_before}" != "null" ]] || \
+   [[ "${private_ip_before}" != "null" ]] || [[ "${public_upload_ip_before}" != "null" ]] || \
    [[ "${sso_app_before}" != "null" ]] || ((sso_grant_count > 0)); then
   needs_oci="true"
 fi
@@ -304,40 +305,42 @@ if ((${#oke_targets[@]})); then
   terraform_with_network_retry destroy -auto-approve "${oke_targets[@]}"
 fi
 
-if [[ "${private_ip_before}" != "null" ]]; then
-  private_ip_id="$(jq -r '.id' <<<"${private_ip_before}")"
-  private_ip_address="$(jq -r '.ip_address' <<<"${private_ip_before}")"
-  private_ip_compartment="$(jq -r '.compartment_id' <<<"${private_ip_before}")"
-  nlb_ids="$(
-    oci "${oci_args[@]}" nlb network-load-balancer list \
-      --compartment-id "${private_ip_compartment}" \
-      --lifecycle-state ACTIVE \
-      --all |
-      jq -r --arg private_ip_id "${private_ip_id}" --arg ip "${private_ip_address}" '
-        (if (.data | type) == "object" then .data.items else .data end)[]?
-        | select(any(."ip-addresses"[]?;
-            (."reserved-ip".id // "") == $private_ip_id or
-            (."ip-address" // "") == $ip))
-        | .id
-      '
-  )"
+for reserved_ip_before in "${private_ip_before}" "${public_upload_ip_before}"; do
+  if [[ "${reserved_ip_before}" != "null" ]]; then
+    private_ip_id="$(jq -r '.id' <<<"${reserved_ip_before}")"
+    private_ip_address="$(jq -r '.ip_address' <<<"${reserved_ip_before}")"
+    private_ip_compartment="$(jq -r '.compartment_id' <<<"${reserved_ip_before}")"
+    nlb_ids="$(
+      oci "${oci_args[@]}" nlb network-load-balancer list \
+        --compartment-id "${private_ip_compartment}" \
+        --lifecycle-state ACTIVE \
+        --all |
+        jq -r --arg private_ip_id "${private_ip_id}" --arg ip "${private_ip_address}" '
+          (if (.data | type) == "object" then .data.items else .data end)[]?
+          | select(any(."ip-addresses"[]?;
+              (."reserved-ip".id // "") == $private_ip_id or
+              (."ip-address" // "") == $ip))
+          | .id
+        '
+    )"
 
-  nlb_count="$(grep -c . <<<"${nlb_ids}" || true)"
-  if ((nlb_count > 1)); then
-    printf 'Refusing to delete %s NLBs matching reserved address %s (%s).\n' \
-      "${nlb_count}" "${private_ip_address}" "${private_ip_id}" >&2
-    exit 1
-  elif ((nlb_count == 1)); then
-    printf 'Deleting Kubernetes-managed NLB %s before releasing %s...\n' \
-      "${nlb_ids}" "${private_ip_address}"
-    oci "${oci_args[@]}" nlb network-load-balancer delete \
-      --network-load-balancer-id "${nlb_ids}" \
-      --force \
-      --wait-for-state SUCCEEDED \
-      --wait-for-state FAILED \
-      --max-wait-seconds 1800 \
-      >/dev/null
+    nlb_count="$(grep -c . <<<"${nlb_ids}" || true)"
+    if ((nlb_count > 1)); then
+      printf 'Refusing to delete %s NLBs matching reserved address %s (%s).\n' \
+        "${nlb_count}" "${private_ip_address}" "${private_ip_id}" >&2
+      exit 1
+    elif ((nlb_count == 1)); then
+      printf 'Deleting Kubernetes-managed NLB %s before releasing %s...\n' \
+        "${nlb_ids}" "${private_ip_address}"
+      oci "${oci_args[@]}" nlb network-load-balancer delete \
+        --network-load-balancer-id "${nlb_ids}" \
+        --force \
+        --wait-for-state SUCCEEDED \
+        --wait-for-state FAILED \
+        --max-wait-seconds 1800 \
+        >/dev/null
+    fi
   fi
-fi
+done
 
 terraform_with_network_retry destroy -auto-approve

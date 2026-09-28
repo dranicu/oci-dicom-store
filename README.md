@@ -14,6 +14,7 @@ Oracle's [cloud-native DICOM reference architecture](https://docs.oracle.com/en/
 - private, versioned OCI Object Storage accessed through its S3-compatible API
 - an OKE-managed private Network Load Balancer with a reserved private address
 - a public HTTPS OCI API Gateway facade with CIDR filtering and rate limiting
+- an optional public HTTPS NLB for large uploads, with client CIDR filtering and explicit certificate trust
 - regional VCN, private application/database tiers, NSGs, NAT, and service gateway
 - an SSH-key-only Oracle Linux bastion on a dedicated management subnet
 - Ansible provisioning of operator diagnostics, OCI CLI, and database tools
@@ -40,6 +41,8 @@ flowchart LR
   Bastion --> OKE
   Bastion --> PG
   NLB --> Proxy["OKE gateway"]
+  Client -->|"Optional HTTPS large uploads"| UploadNLB["Public NLB<br/>client CIDR filtering"]
+  UploadNLB -->|"TLS pass-through"| Proxy
   Proxy --> OKE["Orthanc<br/>2–6 pods"]
   Proxy --> KC["Keycloak IdP"]
   OKE --> Auth["Orthanc auth service"]
@@ -52,6 +55,8 @@ flowchart LR
 
 All application and database VNICs are private. API Gateway terminates public
 TLS; traffic from the gateway to the private NLB stays inside the VCN.
+The optional public NLB passes TLS to NGINX, which uses the generated IP certificate
+and routes uploads through the same Orthanc authorization controls.
 Orthanc disables traditional DICOM SCP port 4242 and exposes DICOMweb instead,
 matching the reference architecture's API Gateway flow.
 
@@ -423,3 +428,10 @@ uses OCI's
 [S3-compatible Object Storage API](https://docs.oracle.com/en-us/iaas/Content/Object/Tasks/s3compatibleapi.htm)
 for payloads. The database node topology follows OCI's
 [PostgreSQL high-availability guidance](https://docs.oracle.com/en-us/iaas/Content/postgresql/high-availability.htm).
+
+## Uploads larger than 20 MB
+
+Enable the optional HTTPS Network Load Balancer endpoint to bypass API Gateway
+for large DICOM uploads. It uses a reserved public IP, explicit certificate trust,
+client CIDR restrictions, and the same Orthanc authorization. See
+[Large uploads](docs/large-uploads.md) for configuration, client commands, and tests.
