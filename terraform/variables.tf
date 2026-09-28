@@ -714,3 +714,9 @@ variable "freeform_tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "enable_large_upload_endpoint" {
+  description = "Create a public HTTPS NLB endpoint for DICOM uploads, restricted to allowed_client_cidrs."
+  type        = bool
+  default     = false
+}

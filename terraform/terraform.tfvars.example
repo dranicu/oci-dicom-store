@@ -79,3 +79,8 @@ storage_user_email = "existing.user@example.org"
 # supply an existing pair through TF_VAR_storage_access_key and
 # TF_VAR_storage_secret_key instead of storing secrets in this file.
 # create_storage_customer_secret_key = false
+
+# Optional HTTPS NLB for uploads larger than the API Gateway 20 MB limit.
+# Restricted to allowed_client_cidrs; clients must explicitly trust the output
+# large_upload_certificate. NLB port 443 terminates TLS at the NGINX pods.
+# enable_large_upload_endpoint = true

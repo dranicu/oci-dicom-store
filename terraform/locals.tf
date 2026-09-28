@@ -515,6 +515,34 @@ locals {
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         }
       }
+      %{if var.enable_large_upload_endpoint~}
+      server {
+        listen 9443 ssl;
+        ssl_certificate /etc/nginx/large-upload-tls/tls.crt;
+        ssl_certificate_key /etc/nginx/large-upload-tls/tls.key;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        client_body_timeout 1200s;
+
+        location = /healthz {
+          access_log off;
+          return 200 "ok\n";
+        }
+
+        # Keep identity/UI/admin routes on the existing API Gateway endpoint.
+        location / { return 404; }
+        location ~ ^/orthanc/(dicom-web/|instances$) {
+          rewrite ^/orthanc/(.*)$ /$1 break;
+          proxy_pass http://orthanc:8042;
+          proxy_http_version 1.1;
+          proxy_set_header Host $host;
+          proxy_set_header X-Forwarded-Host $host;
+          proxy_set_header X-Forwarded-Proto https;
+          proxy_set_header X-Forwarded-Port 443;
+          proxy_set_header X-Forwarded-For $remote_addr;
+          proxy_set_header Authorization $http_authorization;
+        }
+      }
+      %{endif~}
     }
   NGINX
 
@@ -554,10 +582,16 @@ locals {
       var.application_subnet_cidr,
       var.oke_nodes_subnet_cidr,
     ], var.enable_fastconnect ? var.fastconnect_on_premises_cidrs : []))
-    orthanc_host_id         = tostring(parseint(substr(sha256(local.resource_name), 0, 7), 16))
-    enable_fastconnect      = var.enable_fastconnect
-    private_ingest_cert_b64 = var.enable_fastconnect ? base64encode(tls_self_signed_cert.private_ingest[0].cert_pem) : ""
-    private_ingest_key_b64  = var.enable_fastconnect ? base64encode(tls_private_key.private_ingest[0].private_key_pem) : ""
+    orthanc_host_id              = tostring(parseint(substr(sha256(local.resource_name), 0, 7), 16))
+    enable_large_upload_endpoint = var.enable_large_upload_endpoint
+    large_upload_ip              = try(oci_core_public_ip.large_upload[0].ip_address, "")
+    large_upload_subnet_id       = oci_core_subnet.gateway.id
+    large_upload_nsg_id          = try(oci_core_network_security_group.large_upload[0].id, "")
+    large_upload_cert_b64        = var.enable_large_upload_endpoint ? base64encode(tls_self_signed_cert.large_upload[0].cert_pem) : ""
+    large_upload_key_b64         = var.enable_large_upload_endpoint ? base64encode(tls_private_key.large_upload[0].private_key_pem) : ""
+    enable_fastconnect           = var.enable_fastconnect
+    private_ingest_cert_b64      = var.enable_fastconnect ? base64encode(tls_self_signed_cert.private_ingest[0].cert_pem) : ""
+    private_ingest_key_b64       = var.enable_fastconnect ? base64encode(tls_private_key.private_ingest[0].private_key_pem) : ""
     keycloak_bootstrap_id = substr(sha256(join(":", [
       local.keycloak_database_password,
       var.postgres_client_image,
@@ -580,6 +614,7 @@ locals {
     nginx_config_hash = sha256(join("", [
       local.nginx_configuration,
       try(tls_self_signed_cert.private_ingest[0].cert_pem, ""),
+      try(tls_self_signed_cert.large_upload[0].cert_pem, ""),
     ]))
   })
 }

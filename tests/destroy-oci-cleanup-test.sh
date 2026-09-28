@@ -21,23 +21,45 @@ if [[ "$1" == "show" ]]; then
   cat <<'JSON'
 {
   "variables": {
-    "oci_auth": {"value": "APIKey"},
-    "oci_profile": {"value": "DEFAULT"},
-    "region": {"value": "eu-frankfurt-1"}
+    "oci_auth": {
+      "value": "APIKey"
+    },
+    "oci_profile": {
+      "value": "DEFAULT"
+    },
+    "region": {
+      "value": "eu-frankfurt-1"
+    }
   },
   "resource_changes": [
     {
       "address": "oci_containerengine_cluster.orthanc",
-      "change": {"actions": ["delete"], "before": {"id": "ocid1.cluster.test"}}
+      "change": {
+        "actions": [
+          "delete"
+        ],
+        "before": {
+          "id": "ocid1.cluster.test"
+        }
+      }
     },
     {
       "address": "oci_containerengine_node_pool.orthanc",
-      "change": {"actions": ["delete"], "before": {"id": "ocid1.nodepool.test"}}
+      "change": {
+        "actions": [
+          "delete"
+        ],
+        "before": {
+          "id": "ocid1.nodepool.test"
+        }
+      }
     },
     {
       "address": "oci_core_private_ip.orthanc_nlb",
       "change": {
-        "actions": ["delete"],
+        "actions": [
+          "delete"
+        ],
         "before": {
           "id": "ocid1.privateip.test",
           "ip_address": "10.42.10.10",
@@ -49,7 +71,9 @@ if [[ "$1" == "show" ]]; then
       "address": "oci_identity_domains_app.orthanc_sso[0]",
       "type": "oci_identity_domains_app",
       "change": {
-        "actions": ["delete"],
+        "actions": [
+          "delete"
+        ],
         "before": {
           "id": "test-app-id",
           "idcs_endpoint": "https://identity.example.test"
@@ -59,7 +83,27 @@ if [[ "$1" == "show" ]]; then
     {
       "address": "oci_identity_domains_grant.orthanc_sso[\"orthanc-admin\"]",
       "type": "oci_identity_domains_grant",
-      "change": {"actions": ["delete"], "before": {"id": "test-grant-id"}}
+      "change": {
+        "actions": [
+          "delete"
+        ],
+        "before": {
+          "id": "test-grant-id"
+        }
+      }
+    },
+    {
+      "address": "oci_core_public_ip.large_upload[0]",
+      "change": {
+        "actions": [
+          "delete"
+        ],
+        "before": {
+          "id": "ocid1.publicip.upload",
+          "ip_address": "192.0.2.20",
+          "compartment_id": "ocid1.compartment.test"
+        }
+      }
     }
   ]
 }
@@ -85,7 +129,7 @@ case " $* " in
     esac
     ;;
   *" nlb network-load-balancer list "*)
-    printf '%s\n' '{"data":{"items":[{"id":"ocid1.nlb.test","ip-addresses":[{"ip-address":"10.42.10.10","reserved-ip":{"id":"ocid1.privateip.test"}}]}]}}'
+    printf '%s\n' '{"data":{"items":[{"id":"ocid1.nlb.test","ip-addresses":[{"ip-address":"10.42.10.10","reserved-ip":{"id":"ocid1.privateip.test"}}]},{"id":"ocid1.nlb.upload","ip-addresses":[{"ip-address":"192.0.2.20","reserved-ip":{"id":"ocid1.publicip.upload"}}]},{"id":"ocid1.nlb.unrelated","ip-addresses":[{"ip-address":"192.0.2.99"}]}]}}'
     ;;
 esac
 STUB
@@ -115,3 +159,9 @@ grep -Fq 'nlb network-load-balancer delete --network-load-balancer-id ocid1.nlb.
 [[ "$(grep -Fc 'terraform destroy -auto-approve' "${command_log}")" == "3" ]]
 
 printf 'Destroy cleanup revokes SSO grants before deactivation and removes the exact OKE-managed NLB.\n'
+
+grep -Fq 'nlb network-load-balancer delete --network-load-balancer-id ocid1.nlb.upload' "${command_log}"
+if grep -Fq 'network-load-balancer delete --network-load-balancer-id ocid1.nlb.unrelated' "${command_log}"; then
+  printf 'Destroy touched an unrelated load balancer.\n' >&2
+  exit 1
+fi

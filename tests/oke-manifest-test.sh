@@ -7,6 +7,7 @@ trap 'rm -rf "${temporary_dir}"' EXIT
 
 cat >"${temporary_dir}/main.tf" <<'HCL'
 variable "template_path" { type = string }
+variable "large_upload" { default = true }
 locals {
   values = {
     namespace                     = "dicom-test"
@@ -40,6 +41,12 @@ locals {
     postgres_cidr                 = "10.42.20.10/32"
     gateway_ingress_cidrs         = ["10.42.0.0/24", "192.0.2.0/24"]
     orthanc_host_id               = "12345678"
+    enable_large_upload_endpoint = var.large_upload
+    large_upload_ip = "192.0.2.20"
+    large_upload_subnet_id = "ocid1.subnet.public"
+    large_upload_nsg_id = "ocid1.networksecuritygroup.upload"
+    large_upload_cert_b64 = "dGVzdA=="
+    large_upload_key_b64 = "dGVzdA=="
     enable_fastconnect            = true
     private_ingest_cert_b64       = "dGVzdA=="
     private_ingest_key_b64        = "dGVzdA=="
@@ -118,9 +125,31 @@ secret = objects.find { |item| item["kind"] == "Secret" && item.dig("metadata", 
 raise "unused auth username remains" if secret.fetch("data").key?("auth-username")
 raise "unused auth password remains" if secret.fetch("data").key?("auth-password")
 
+upload = objects.find { |item| item["kind"] == "Service" && item.dig("metadata", "name") == "dicom-large-upload" }
+raise "upload service missing" unless upload
+raise "upload exposed over plaintext" unless upload.dig("spec", "ports").map { |p| p["port"] } == [443]
+raise "wrong TLS backend" unless upload.dig("spec", "ports", 0, "targetPort") == "large-https"
+raise "Cluster mode has incompatible preserve-source annotation" if upload.dig("metadata", "annotations").key?("oci-network-load-balancer.oraclecloud.com/is-preserve-source")
+raise "reserved upload IP missing" unless upload.dig("metadata", "annotations", "oci.oraclecloud.com/reserved-ips") == "192.0.2.20"
+gateway = deployments.dig("dicom-gateway", "spec", "template", "spec")
+raise "upload certificate missing" unless gateway["volumes"].any? { |v| v.dig("secret", "secretName") == "large-upload-tls" }
+raise "upload TLS port missing" unless gateway["containers"][0]["ports"].any? { |p| p["name"] == "large-https" && p["containerPort"] == 9443 }
+
 policies = objects.select { |item| item["kind"] == "NetworkPolicy" }.map { |item| item.dig("metadata", "name") }.sort
 expected = %w[allow-dns default-deny dicom-gateway keycloak keycloak-database-bootstrap orthanc orthanc-authorization].sort
 raise "network policy set differs" unless policies == expected
 RUBY
 
 printf 'OKE manifest is valid YAML with hardened workloads and enforced policy definitions.\n'
+
+terraform -chdir="${temporary_dir}" apply -auto-approve \
+  -var="template_path=${project_dir}/terraform/templates/stack.yaml.tftpl" \
+  -var=large_upload=false >/dev/null
+terraform -chdir="${temporary_dir}" output -raw rendered >"${temporary_dir}/disabled.yaml"
+ruby -ryaml - "${temporary_dir}/disabled.yaml" <<'RUBY'
+objects = YAML.load_stream(File.read(ARGV.fetch(0))).compact
+raise "disabled upload resources remain" if objects.any? { |o| %w[dicom-large-upload large-upload-tls].include?(o.dig("metadata", "name")) }
+gateway = objects.find { |o| o["kind"] == "Deployment" && o.dig("metadata", "name") == "dicom-gateway" }
+ports = gateway.dig("spec", "template", "spec", "containers", 0, "ports")
+raise "disabled upload port remains" if ports.any? { |p| p["containerPort"] == 9443 }
+RUBY
